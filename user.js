@@ -11,749 +11,738 @@
 // ==/UserScript==
 
 (function () {
-  'use strict';
+    'use strict';
 
-  /* =========================================================
-   * 1. Payload extraction (pure string work — no IDs hardcoded)
-   * ========================================================= */
+    /* =========================================================
+     * 1. Payload extraction (pure string work — no IDs hardcoded)
+     * ========================================================= */
 
-  const MARKER = /['"]LMS\.Learning\.Courseware\.Exam['"]\s*,/;
+    const MARKER = /['"]LMS\.Learning\.Courseware\.Exam['"]\s*,/;
 
-  // Walks a balanced [...] / {...} region, ignoring brackets inside strings.
-  function sliceBalanced(text, start, open, close) {
-    let depth = 0;
-    let quote = null;
-    let escaped = false;
+    // Walks a balanced [...] / {...} region, ignoring brackets inside strings.
+    function sliceBalanced(text, start, open, close) {
+        let depth = 0;
+        let quote = null;
+        let escaped = false;
 
-    for (let i = start; i < text.length; i++) {
-      const ch = text[i];
+        for (let i = start; i < text.length; i++) {
+            const ch = text[i];
 
-      if (quote) {
-        if (escaped) escaped = false;
-        else if (ch === '\\') escaped = true;
-        else if (ch === quote) quote = null;
-        continue;
-      }
+            if (quote) {
+                if (escaped) escaped = false;
+                else if (ch === '\\') escaped = true;
+                else if (ch === quote) quote = null;
+                continue;
+            }
 
-      if (ch === '"' || ch === "'" || ch === '`') {
-        quote = ch;
-        continue;
-      }
+            if (ch === '"' || ch === "'" || ch === '`') {
+                quote = ch;
+                continue;
+            }
 
-      if (ch === open) depth++;
-      else if (ch === close) {
-        depth--;
-        if (depth === 0) return text.slice(start, i + 1);
-      }
-    }
-    return null;
-  }
-
-  function parseJsonLoose(text) {
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      // tolerate trailing commas, the only realistic corruption here
-      const cleaned = text.replace(/,\s*([}\]])/g, '$1');
-      return JSON.parse(cleaned);
-    }
-  }
-
-  // Finds `'LMS.Learning.Courseware.Exam', { ... items: [ ... ] ... }`
-  // and returns the items array. No assumption about ids/values.
-  function extractItems(html) {
-    let from = 0;
-
-    while (from < html.length) {
-      const rel = MARKER.exec(html.slice(from));
-      if (!rel) return null;
-
-      const at = from + rel.index;
-      const after = html.slice(at);
-      const relItems = /\bitems\s*:\s*\[/.exec(after);
-
-      if (relItems) {
-        const arrStart = at + relItems.index + relItems[0].length - 1;
-        const arrText = sliceBalanced(html, arrStart, '[', ']');
-
-        if (arrText) {
-          try {
-            const arr = parseJsonLoose(arrText);
-            if (Array.isArray(arr)) return { items: arr, at };
-          } catch (e) {
-            /* keep looking for another marker occurrence */
-          }
+            if (ch === open) depth++;
+            else if (ch === close) {
+                depth--;
+                if (depth === 0) return text.slice(start, i + 1);
+            }
         }
-      }
-
-      from = at + rel[0].length;
+        return null;
     }
-    return null;
-  }
 
-  /* =========================================================
-   * 2. Normalisation / description of items
-   * ========================================================= */
-
-  const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const LOWER = 'abcdefghijklmnopqrstuvwxyz';
-
-  const raw = (v) => (v == null ? '' : String(v).trim());
-
-  /* Payload strings sometimes carry markup (<span style="font-size:14px">…,
-     <br>, &nbsp;). Show the text only: drop every tag and attribute, keep the
-     line breaks, decode entities. Inert parse, so no script or image runs. */
-  const BLOCKS = new Set([
-    'P', 'DIV', 'LI', 'UL', 'OL', 'DL', 'DD', 'DT', 'TR', 'TD', 'TH', 'TABLE',
-    'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'SECTION',
-    'ARTICLE', 'HEADER', 'FOOTER', 'FIGURE', 'FIGCAPTION', 'HR', 'ADDRESS',
-  ]);
-  const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'HEAD', 'IFRAME', 'SVG', 'MATH']);
-
-  function htmlToText(html) {
-    if (!/[<&]/.test(html)) return html;
-
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    const out = [];
-
-    const walk = (node) => {
-      for (const child of node.childNodes) {
-        if (child.nodeType === 3) {
-          out.push(child.nodeValue);
-        } else if (child.nodeType === 1) {
-          if (child.tagName === 'BR') out.push('\n');
-          else if (!SKIP.has(child.tagName)) {
-            const block = BLOCKS.has(child.tagName);
-            if (block) out.push('\n');
-            walk(child);
-            if (block) out.push('\n');
-          }
+    function parseJsonLoose(text) {
+        try {
+            return JSON.parse(text);
+        } catch (e) {
+            // tolerate trailing commas, the only realistic corruption here
+            const cleaned = text.replace(/,\s*([}\]])/g, '$1');
+            return JSON.parse(cleaned);
         }
-      }
-    };
-
-    walk(doc.body);
-
-    return out
-      .join('')
-      .replace(/[ \t\u00a0]+/g, ' ')
-      .replace(/ ?\n ?/g, '\n')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-  }
-
-  const txt = (v) => htmlToText(raw(v));
-
-  const esc = (v) =>
-    String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      '"': '&quot;',
-      "'": '&#39;',
-    }[c]));
-
-  function labelUpper(i) {
-    return UPPER[i] || String(i + 1);
-  }
-
-  function labelLower(i) {
-    return (LOWER[i] || String(i + 1)) + '.';
-  }
-
-  function markedPoint(point) {
-    const s = txt(point).replace(',', '.');
-    if (!s) return false;
-    const n = Number(s);
-    return Number.isFinite(n) ? n > 0 : false;
-  }
-
-  const isTrueValue = (v) => /^(true|1|đúng|dung|yes|t|đ)$/i.test(txt(v));
-  const isFalseValue = (v) => /^(false|0|sai|no|f|s)$/i.test(txt(v));
-
-  // choices may be an object keyed "1".."n" (or anything else)
-  function choiceEntries(choices) {
-    if (!choices || typeof choices !== 'object') return [];
-    return Object.keys(choices)
-      .sort((a, b) => {
-        const na = parseInt(a, 10);
-        const nb = parseInt(b, 10);
-        if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
-        return a.localeCompare(b);
-      })
-      .map((key) => ({ key, value: choices[key] || {} }));
-  }
-
-  function classify(item) {
-    const type = txt(item && item.elementType);
-    const keys = Object.keys(item || {});
-
-    // Fill in the blank: any number of answerTextN fields.
-    if (keys.some((k) => /^answerText\d+$/i.test(k))) return 'short';
-
-    // True/False: explicit type, or choices whose titles are only true/false.
-    const entries = choiceEntries(item && item.choices);
-    if (/truefalse|true_false|^tf/i.test(type)) return 'truefalse';
-    if (
-      entries.length > 0 &&
-      entries.every((e) => isTrueValue(e.value.answerTitle) || isFalseValue(e.value.answerTitle))
-    ) {
-      return 'truefalse';
     }
 
-    if (entries.length > 0) return 'choice';
-    return 'unknown';
-  }
+    // Finds `'LMS.Learning.Courseware.Exam', { ... items: [ ... ] ... }`
+    // and returns the items array. No assumption about ids/values.
+    function extractItems(html) {
+        let from = 0;
 
-  function describeItem(item, li) {
-    const kind = classify(item);
-    const out = {
-      id: txt(item.id || item._id),
-      index: Number(item.questionIndex) || 0,
-      kind,
-      typeLabel: txt(item.elementTypeTitle) || txt(item.elementType) || 'Câu hỏi',
-      title: txt(item.textTitle) || txt(item.title),
-      note: txt(item.answerDescription),
-      domNumber: li ? txt(li.querySelector('.choice-question-number')?.textContent) : '',
-      answer: '—',
-      options: [],
-      statements: [],
-      parts: [],
-    };
+        while (from < html.length) {
+            const rel = MARKER.exec(html.slice(from));
+            if (!rel) return null;
 
-    if (kind === 'choice') {
-      out.options = choiceEntries(item.choices).map((e, i) => ({
-        label: txt(e.value.answerTitle) || labelUpper(i),
-        marked: markedPoint(e.value.point),
-      }));
-      const marked = out.options.filter((o) => o.marked).map((o) => o.label);
-      out.answer = marked.length ? marked.join(', ') : '—';
-    } else if (kind === 'truefalse') {
-      const entries = choiceEntries(item.choices);
-      const usePoint = entries.some((e) => txt(e.value.point) !== '');
+            const at = from + rel.index;
+            const after = html.slice(at);
+            const relItems = /\bitems\s*:\s*\[/.exec(after);
 
-      out.statements = entries.map((e, i) => {
-        const raw = txt(e.value.answerTitle);
-        let truth = null;
+            if (relItems) {
+                const arrStart = at + relItems.index + relItems[0].length - 1;
+                const arrText = sliceBalanced(html, arrStart, '[', ']');
 
-        if (usePoint) truth = markedPoint(e.value.point);
-        else if (isTrueValue(raw)) truth = true;
-        else if (isFalseValue(raw)) truth = false;
+                if (arrText) {
+                    try {
+                        const arr = parseJsonLoose(arrText);
+                        if (Array.isArray(arr)) return { items: arr };
+                    } catch (e) {
+                        /* keep looking for another marker occurrence */
+                    }
+                }
+            }
 
-        return { label: labelLower(i), truth, raw };
-      });
-
-      out.answer = out.statements
-        .map((s) => `${s.label} ${s.truth === true ? 'Đ' : s.truth === false ? 'S' : '?'}`)
-        .join('  ');
-    } else if (kind === 'short') {
-      out.parts = Object.keys(item)
-        .filter((k) => /^answerText\d+$/i.test(k))
-        .sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]))
-        .map((k) => ({ key: k, value: txt(item[k]) }));
-
-      out.answer = out.parts.map((p) => p.value).join('');
+            from = at + rel[0].length;
+        }
+        return null;
     }
 
-    return out;
-  }
+    /* =========================================================
+     * 2. Normalisation / description of items
+     * ========================================================= */
 
-  /* =========================================================
-   * 3. Report: read meta + map items to the page's own layout
-   * ========================================================= */
+    const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const LOWER = 'abcdefghijklmnopqrstuvwxyz';
 
-  function readMeta(doc) {
-    const fields = {};
+    const raw = (v) => (v == null ? '' : String(v).trim());
 
-    doc.querySelectorAll('.header-detail-courseResultPDF .mb-5').forEach((el) => {
-      const t = el.textContent.replace(/\s+/g, ' ').trim();
-      const i = t.indexOf(':');
-      if (i > 0 && i < 40) {
-        const k = t.slice(0, i).trim();
-        const v = t.slice(i + 1).trim();
-        if (k && v) fields[k] = v;
-      }
-    });
+    /* Payload strings sometimes carry markup (<span style="font-size:14px">…,
+       <br>, &nbsp;). Show the text only: drop every tag and attribute, keep the
+       line breaks, decode entities. Inert parse, so no script or image runs. */
+    const BLOCKS = new Set([
+        'P', 'DIV', 'LI', 'UL', 'OL', 'DL', 'DD', 'DT', 'TR', 'TD', 'TH', 'TABLE',
+        'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'SECTION',
+        'ARTICLE', 'HEADER', 'FOOTER', 'FIGURE', 'FIGCAPTION', 'HR', 'ADDRESS',
+    ]);
+    const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'HEAD', 'IFRAME', 'SVG', 'MATH']);
 
-    const title = txt(
-      doc.querySelector('.title-courseResultPDF')?.textContent ||
-        doc.querySelector('.title-course')?.textContent
-    );
+    function htmlToText(html) {
+        if (!/[<&]/.test(html)) return html;
 
-    let code = txt(doc.querySelector('.code-courseResultPDF b')?.textContent);
-    if (!code) {
-      const m = /Mã đề\s*:\s*([^\s]+)/i.exec(
-        doc.querySelector('.header-detail-courseResultPDF')?.textContent || ''
-      );
-      if (m) code = m[1];
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const out = [];
+
+        const walk = (node) => {
+            for (const child of node.childNodes) {
+                if (child.nodeType === 3) {
+                    out.push(child.nodeValue);
+                } else if (child.nodeType === 1) {
+                    if (child.tagName === 'BR') out.push('\n');
+                    else if (!SKIP.has(child.tagName)) {
+                        const block = BLOCKS.has(child.tagName);
+                        if (block) out.push('\n');
+                        walk(child);
+                        if (block) out.push('\n');
+                    }
+                }
+            }
+        };
+
+        walk(doc.body);
+
+        return out
+            .join('')
+            .replace(/[ \t\u00a0]+/g, ' ')
+            .replace(/ ?\n ?/g, '\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
     }
 
-    const student = Array.from(doc.querySelectorAll('.header-detail-courseResultPDF p'))
-      .map((p) => p.textContent.replace(/\s+/g, ' ').trim())
-      .find((t) => /học sinh/i.test(t));
+    const txt = (v) => htmlToText(raw(v));
 
-    if (student) fields['Học sinh'] = student.replace(/^Học sinh\s*:\s*/i, '');
+    const esc = (v) =>
+        String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;',
+        }[c]));
 
-    return { title, code, fields };
-  }
-
-  function buildReport(html) {
-    const found = extractItems(html);
-    if (!found) {
-      throw new Error('No LMS.Learning.Courseware.Exam payload found in this HTML.');
+    function labelUpper(i) {
+        return UPPER[i] || String(i + 1);
     }
 
-    const items = found.items;
-    const byId = new Map();
-    for (const item of items) byId.set(txt(item.id || item._id), item);
-
-    let doc = null;
-    try {
-      doc = new DOMParser().parseFromString(html, 'text/html');
-    } catch (e) {
-      doc = null;
+    function labelLower(i) {
+        return (LOWER[i] || String(i + 1)) + '.';
     }
 
-    const meta = doc
-      ? readMeta(doc)
-      : { title: '', code: '', fields: {} };
+    function markedPoint(point) {
+        const s = txt(point).replace(',', '.');
+        if (!s) return false;
+        const n = Number(s);
+        return Number.isFinite(n) ? n > 0 : false;
+    }
 
-    const groups = [];
-    const used = new Set();
+    const isTrueValue = (v) => /^(true|1|đúng|dung|yes|t|đ)$/i.test(txt(v));
+    const isFalseValue = (v) => /^(false|0|sai|no|f|s)$/i.test(txt(v));
 
-    if (doc) {
-      // Follow the page's own order + part headers, whatever they are.
-      const lis = doc.querySelectorAll('li[id]');
+    // choices may be an object keyed "1".."n" (or anything else)
+    function choiceEntries(choices) {
+        if (!choices || typeof choices !== 'object') return [];
+        return Object.keys(choices)
+            .sort((a, b) => {
+                const na = parseInt(a, 10);
+                const nb = parseInt(b, 10);
+                if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
+                return a.localeCompare(b);
+            })
+            .map((key) => ({ value: choices[key] || {} }));
+    }
 
-      for (const li of lis) {
-        const id = byId.has(li.id) ? li.id : li.id.replace(/^question/, '');
-        const item = byId.get(id);
-        if (!item) continue;
+    function classify(item) {
+        const type = txt(item && item.elementType);
+        const keys = Object.keys(item || {});
 
-        used.add(id);
+        // Fill in the blank: any number of answerTextN fields.
+        if (keys.some((k) => /^answerText\d+$/i.test(k))) return 'short';
 
-        const partName =
-          txt(li.closest('.part-content')?.querySelector('.part-header')?.textContent) || 'Câu hỏi';
-
-        let group = groups.find((g) => g.name === partName);
-        if (!group) {
-          group = { name: partName, questions: [] };
-          groups.push(group);
+        // True/False: explicit type, or choices whose titles are only true/false.
+        const entries = choiceEntries(item && item.choices);
+        if (/truefalse|true_false|^tf/i.test(type)) return 'truefalse';
+        if (
+            entries.length > 0 &&
+            entries.every((e) => isTrueValue(e.value.answerTitle) || isFalseValue(e.value.answerTitle))
+        ) {
+            return 'truefalse';
         }
 
-        group.questions.push(describeItem(item, li));
-      }
+        if (entries.length > 0) return 'choice';
+        return 'unknown';
     }
 
-    // Anything not present in the DOM (or no DOM at all): keep it, grouped by type.
-    const leftovers = items.filter((item) => !used.has(txt(item.id || item._id)));
+    function describeItem(item, li) {
+        const kind = classify(item);
+        const out = {
+            index: Number(item.questionIndex) || 0,
+            kind,
+            title: txt(item.textTitle) || txt(item.title),
+            note: txt(item.answerDescription),
+            domNumber: li ? txt(li.querySelector('.choice-question-number')?.textContent) : '',
+            answer: '—',
+            options: [],
+            statements: [],
+            parts: [],
+        };
 
-    if (leftovers.length) {
-      if (!groups.length) {
-        const byType = new Map();
+        if (kind === 'choice') {
+            out.options = choiceEntries(item.choices).map((e, i) => ({
+                label: txt(e.value.answerTitle) || labelUpper(i),
+                marked: markedPoint(e.value.point),
+            }));
+            const marked = out.options.filter((o) => o.marked).map((o) => o.label);
+            out.answer = marked.length ? marked.join(', ') : '—';
+        } else if (kind === 'truefalse') {
+            const entries = choiceEntries(item.choices);
+            const usePoint = entries.some((e) => txt(e.value.point) !== '');
 
-        for (const item of leftovers) {
-          const key = txt(item.elementTypeTitle) || txt(item.elementType) || 'Khác';
-          if (!byType.has(key)) byType.set(key, { name: key, questions: [] });
-          byType.get(key).questions.push(describeItem(item, null));
+            out.statements = entries.map((e, i) => {
+                const raw = txt(e.value.answerTitle);
+                let truth = null;
+
+                if (usePoint) truth = markedPoint(e.value.point);
+                else if (isTrueValue(raw)) truth = true;
+                else if (isFalseValue(raw)) truth = false;
+
+                return { label: labelLower(i), truth };
+            });
+
+            out.answer = out.statements
+                .map((s) => `${s.label} ${s.truth === true ? 'Đ' : s.truth === false ? 'S' : '?'}`)
+                .join('  ');
+        } else if (kind === 'short') {
+            out.parts = Object.keys(item)
+                .filter((k) => /^answerText\d+$/i.test(k))
+                .sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]))
+                .map((k) => ({ key: k, value: txt(item[k]) }));
+
+            out.answer = out.parts.map((p) => p.value).join('');
         }
 
-        groups.push(...byType.values());
-      } else {
-        groups.push({
-          name: 'Không có trên trang',
-          questions: leftovers.map((item) => describeItem(item, null)),
+        return out;
+    }
+
+    /* =========================================================
+     * 3. Report: read meta + map items to the page's own layout
+     * ========================================================= */
+
+    function readMeta(doc) {
+        const fields = {};
+
+        doc.querySelectorAll('.header-detail-courseResultPDF .mb-5').forEach((el) => {
+            const t = el.textContent.replace(/\s+/g, ' ').trim();
+            const i = t.indexOf(':');
+            if (i > 0 && i < 40) {
+                const k = t.slice(0, i).trim();
+                const v = t.slice(i + 1).trim();
+                if (k && v) fields[k] = v;
+            }
         });
-      }
-    }
 
-    const questions = groups.reduce((acc, g) => acc.concat(g.questions), []);
-    return { meta, groups, questions, itemCount: items.length };
-  }
+        const title = txt(
+            doc.querySelector('.title-courseResultPDF')?.textContent ||
+            doc.querySelector('.title-course')?.textContent
+        );
 
-  /* =========================================================
-   * 4. Plain-text rendering (for Copy)
-   * ========================================================= */
-
-  function reportText(report) {
-    const lines = [];
-    const m = report.meta || {};
-
-    if (m.title) lines.push(m.title + (m.code ? ` — Mã đề ${m.code}` : ''));
-    if (m.fields && Object.keys(m.fields).length) {
-      lines.push(
-        Object.entries(m.fields)
-          .filter(([k]) => !(m.code && /mã đề/i.test(k)))
-          .map(([k, v]) => `${k}: ${v}`)
-          .join(' · ')
-      );
-    }
-
-    for (const g of report.groups) {
-      lines.push('', `[${g.name}]`);
-
-      for (const q of g.questions) {
-        const n = q.domNumber || q.index || '?';
-        let answer = '?';
-
-        if (q.kind === 'choice') answer = q.answer;
-        else if (q.kind === 'truefalse') answer = q.statements
-          .map((s) => `${s.label} ${s.truth === true ? 'Đ' : s.truth === false ? 'S' : '?'}`)
-          .join('  ');
-        else if (q.kind === 'short') {
-          answer = q.parts.map((p) => p.value).join('');
-          if (q.parts.length > 1) {
-            answer += `   (${q.parts.map((p) => (p.value === '' ? '∅' : p.value)).join(' | ')})`;
-          }
+        let code = txt(doc.querySelector('.code-courseResultPDF b')?.textContent);
+        if (!code) {
+            const m = /Mã đề\s*:\s*([^\s]+)/i.exec(
+                doc.querySelector('.header-detail-courseResultPDF')?.textContent || ''
+            );
+            if (m) code = m[1];
         }
 
-        lines.push(`${n}. ${answer}`);
-      }
+        const student = Array.from(doc.querySelectorAll('.header-detail-courseResultPDF p'))
+            .map((p) => p.textContent.replace(/\s+/g, ' ').trim())
+            .find((t) => /học sinh/i.test(t));
+
+        if (student) fields['Học sinh'] = student.replace(/^Học sinh\s*:\s*/i, '');
+
+        return { title, code, fields };
     }
 
-    return lines.join('\n');
-  }
+    function buildReport(html) {
+        const found = extractItems(html);
+        if (!found) {
+            throw new Error('No LMS.Learning.Courseware.Exam payload found in this HTML.');
+        }
 
-  /* =========================================================
-   * 5. Raw HTTP request parser + replay (no hardcoded host/id)
-   * ========================================================= */
+        const items = found.items;
+        const byId = new Map();
+        for (const item of items) byId.set(txt(item.id || item._id), item);
 
-  function shellTokens(input) {
-    const tokens = [];
-    let current = '';
-    let quote = null;
+        let doc = null;
+        try {
+            doc = new DOMParser().parseFromString(html, 'text/html');
+        } catch (e) {
+            doc = null;
+        }
 
-    for (let i = 0; i < input.length; i++) {
-      const ch = input[i];
+        const meta = doc
+            ? readMeta(doc)
+            : { title: '', code: '', fields: {} };
 
-      if (quote) {
-        if (ch === quote) {
-          quote = null;
-        } else if (ch === '\\' && quote === '"' && i + 1 < input.length) {
-          current += input[++i];
+        const groups = [];
+        const used = new Set();
+
+        if (doc) {
+            // Follow the page's own order + part headers, whatever they are.
+            const lis = doc.querySelectorAll('li[id]');
+
+            for (const li of lis) {
+                const id = byId.has(li.id) ? li.id : li.id.replace(/^question/, '');
+                const item = byId.get(id);
+                if (!item) continue;
+
+                used.add(id);
+
+                const partName =
+                    txt(li.closest('.part-content')?.querySelector('.part-header')?.textContent) || 'Câu hỏi';
+
+                let group = groups.find((g) => g.name === partName);
+                if (!group) {
+                    group = { name: partName, questions: [] };
+                    groups.push(group);
+                }
+
+                group.questions.push(describeItem(item, li));
+            }
+        }
+
+        // Anything not present in the DOM (or no DOM at all): keep it, grouped by type.
+        const leftovers = items.filter((item) => !used.has(txt(item.id || item._id)));
+
+        if (leftovers.length) {
+            if (!groups.length) {
+                const byType = new Map();
+
+                for (const item of leftovers) {
+                    const key = txt(item.elementTypeTitle) || txt(item.elementType) || 'Khác';
+                    if (!byType.has(key)) byType.set(key, { name: key, questions: [] });
+                    byType.get(key).questions.push(describeItem(item, null));
+                }
+
+                groups.push(...byType.values());
+            } else {
+                groups.push({
+                    name: 'Không có trên trang',
+                    questions: leftovers.map((item) => describeItem(item, null)),
+                });
+            }
+        }
+
+        const questions = groups.reduce((acc, g) => acc.concat(g.questions), []);
+        return { meta, groups, questions, itemCount: items.length };
+    }
+
+    /* =========================================================
+     * 4. Plain-text rendering (for Copy)
+     * ========================================================= */
+
+    function reportText(report) {
+        const lines = [];
+        const m = report.meta || {};
+
+        if (m.title) lines.push(m.title + (m.code ? ` — Mã đề ${m.code}` : ''));
+        if (m.fields && Object.keys(m.fields).length) {
+            lines.push(
+                Object.entries(m.fields)
+                    .filter(([k]) => !(m.code && /mã đề/i.test(k)))
+                    .map(([k, v]) => `${k}: ${v}`)
+                    .join(' · ')
+            );
+        }
+
+        for (const g of report.groups) {
+            lines.push('', `[${g.name}]`);
+
+            for (const q of g.questions) {
+                const n = q.domNumber || q.index || '?';
+                let answer = '?';
+
+                if (q.kind === 'choice') answer = q.answer;
+                else if (q.kind === 'truefalse') answer = q.statements
+                    .map((s) => `${s.label} ${s.truth === true ? 'Đ' : s.truth === false ? 'S' : '?'}`)
+                    .join('  ');
+                else if (q.kind === 'short') {
+                    answer = q.parts.map((p) => p.value).join('');
+                    if (q.parts.length > 1) {
+                        answer += `   (${q.parts.map((p) => (p.value === '' ? '∅' : p.value)).join(' | ')})`;
+                    }
+                }
+
+                lines.push(`${n}. ${answer}`);
+            }
+        }
+
+        return lines.join('\n');
+    }
+
+    /* =========================================================
+     * 5. Raw HTTP request parser + replay (no hardcoded host/id)
+     * ========================================================= */
+
+    function shellTokens(input) {
+        const tokens = [];
+        let current = '';
+        let quote = null;
+
+        for (let i = 0; i < input.length; i++) {
+            const ch = input[i];
+
+            if (quote) {
+                if (ch === quote) {
+                    quote = null;
+                } else if (ch === '\\' && quote === '"' && i + 1 < input.length) {
+                    current += input[++i];
+                } else {
+                    current += ch;
+                }
+                continue;
+            }
+
+            if (ch === "'" || ch === '"') {
+                quote = ch;
+            } else if (/\s/.test(ch)) {
+                if (current) {
+                    tokens.push(current);
+                    current = '';
+                }
+            } else if (ch === '\\' && i + 1 < input.length) {
+                current += input[++i];
+            } else {
+                current += ch;
+            }
+        }
+
+        if (current) tokens.push(current);
+        return tokens;
+    }
+
+    function parseCurl(text) {
+        const tokens = shellTokens(text);
+        tokens.shift(); // "curl"
+
+        let url = '';
+        let method = '';
+        let body = '';
+        const headers = {};
+
+        for (let i = 0; i < tokens.length; i++) {
+            const t = tokens[i];
+
+            if (t === '-H' || t === '--header') {
+                const h = tokens[++i] || '';
+                const p = h.indexOf(':');
+                if (p > 0) headers[h.slice(0, p).trim().toLowerCase()] = h.slice(p + 1).trim();
+            } else if (t === '-X' || t === '--request') {
+                method = (tokens[++i] || '').toUpperCase();
+            } else if (
+                t === '-d' || t === '--data' || t === '--data-raw' ||
+                t === '--data-binary' || t === '--data-urlencode'
+            ) {
+                body = tokens[++i] || '';
+                if (!method) method = 'POST';
+            } else if (
+                t === '-b' || t === '--cookie' || t === '-A' || t === '--user-agent' ||
+                t === '-e' || t === '--referer'
+            ) {
+                i++; // the browser supplies these; sendRequest drops them anyway
+            } else if (t === '--url') {
+                url = tokens[++i] || '';
+            } else if (!t.startsWith('-') && !url) {
+                url = t;
+            }
+        }
+
+        if (!url) throw new Error('No URL found in the cURL command.');
+        if (!/^https?:\/\//i.test(url)) url = new URL(url, location.href).href;
+
+        return { method: method || (body ? 'POST' : 'GET'), url, headers, body };
+    }
+
+    function parseRawRequest(raw) {
+        const text = String(raw).replace(/\r\n/g, '\n').trim();
+
+        // Also accept a DevTools "Copy as cURL" command.
+        if (/^curl(\.exe)?\s/i.test(text)) return parseCurl(text);
+
+        const split = text.indexOf('\n\n');
+        const head = split === -1 ? text : text.slice(0, split);
+        const body = split === -1 ? '' : text.slice(split + 2);
+
+        const lines = head.split('\n').filter((l) => l.trim() !== '');
+        const first = lines.shift() || '';
+        const m = /^([A-Z]+)\s+(\S+)\s+HTTP\/[\d.]+$/i.exec(first.trim());
+
+        if (!m) {
+            throw new Error('Not a raw HTTP request line. Expected e.g. "GET /path HTTP/1.1".');
+        }
+
+        const headers = {};
+        for (const line of lines) {
+            const i = line.indexOf(':');
+            if (i < 1) continue;
+            const key = line.slice(0, i).trim().toLowerCase();
+            const value = line.slice(i + 1).trim();
+            headers[key] = headers[key] ? `${headers[key]}, ${value}` : value;
+        }
+
+        const host = headers.host;
+        if (!host) throw new Error('Missing Host header.');
+
+        let url = m[2];
+        if (!/^https?:\/\//i.test(url)) {
+            const scheme = host.endsWith(':80')
+                ? 'http'
+                : (location.protocol === 'http:' && !host.endsWith(':443') ? 'http' : 'https');
+            url = `${scheme}://${host}${url.startsWith('/') ? '' : '/'}${url}`;
+        }
+
+        return { method: m[1].toUpperCase(), url, headers, body };
+    }
+
+    // Headers a browser refuses to let JS set, or that must come from the live session.
+    const SKIP_HEADER = /^(host|cookie|content-length|connection|accept-encoding|upgrade-insecure-requests|priority|referer|origin|user-agent|sec-.*)$/i;
+
+    async function sendRequest(req) {
+        const headers = {};
+        for (const [key, value] of Object.entries(req.headers)) {
+            if (SKIP_HEADER.test(key)) continue;
+            headers[key] = value;
+        }
+
+        const init = {
+            method: req.method,
+            headers,
+            credentials: 'include', // use the browser's current session cookies
+            redirect: 'follow',
+            cache: 'no-store',
+        };
+
+        if (req.method !== 'GET' && req.method !== 'HEAD') init.body = req.body || '';
+
+        return fetch(req.url, init);
+    }
+
+    // If the pasted blob already contains an HTTP response (or raw HTML), use it as-is.
+    function extractInlineResponse(raw) {
+        const text = String(raw).replace(/\r\n/g, '\n');
+        const status = /(?:^|\n)HTTP\/\d(?:\.\d)?\s+\d{3}[^\n]*\n/.exec(text);
+
+        let section = text;
+
+        if (status) {
+            const rest = text.slice(status.index + status[0].length);
+            const headersEnd = rest.indexOf('\n\n');
+            section = headersEnd === -1 ? rest : rest.slice(headersEnd + 2);
+        } else if (/^\s*</.test(text)) {
+            section = text;
         } else {
-          current += ch;
+            return null;
         }
-        continue;
-      }
 
-      if (ch === "'" || ch === '"') {
-        quote = ch;
-      } else if (/\s/.test(ch)) {
-        if (current) {
-          tokens.push(current);
-          current = '';
+        return MARKER.test(section) || /<html[\s>]/i.test(section) ? section : null;
+    }
+
+    /* =========================================================
+     * 6. Panel UI (Shadow DOM so the LMS CSS can't break it)
+     * ========================================================= */
+
+    /* --- Stealth build (red-team reference) ------------------------------
+       Forensic channels of the previous build, all closed:
+         1. no cookies    - nothing of ours appears in any request header
+         2. no fixed key  - one storage entry, name derived from the host
+         3. no globals    - no unsafeWindow.LMSDevAnswers unless DEV
+         4. no external  - no Google Fonts request, no DNS leak
+         5. no static id - element ids and theme attribute are randomised
+         6. no extra GET - the request replay is DEV-only
+       Theme/hue still persist: the LMS only calls removeItem() on its own
+       keys, it never clears the whole store.
+       -------------------------------------------------------------------- */
+
+    const DEV = /[?&]__lmsdev=1\b/.test(location.search);
+
+    const RID = () => Math.random().toString(36).slice(2, 10);
+    const HOST_ID = 'x' + RID();
+    const FAB_ID = 'y' + RID();
+    const FONT_ID = 'lms-payload-reader-font';
+    const THEME_ATTR = 'data-' + RID();
+    const HUE_KEY = 'hue';
+    const THEME_KEY = 'theme';
+
+    // One entry, name carries no recognisable string.
+    const STORE_KEY =
+        '_' +
+        [...location.hostname].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(36);
+
+    function readStore() {
+        for (const store of [localStorage, sessionStorage]) {
+            try {
+                const raw = store.getItem(STORE_KEY);
+                if (raw) return JSON.parse(raw);
+            } catch (e) {
+                /* storage blocked or corrupt entry */
+            }
         }
-      } else if (ch === '\\' && i + 1 < input.length) {
-        current += input[++i];
-      } else {
-        current += ch;
-      }
+        return null;
     }
 
-    if (current) tokens.push(current);
-    return tokens;
-  }
-
-  function parseCurl(text) {
-    const tokens = shellTokens(text);
-    tokens.shift(); // "curl"
-
-    let url = '';
-    let method = '';
-    let body = '';
-    const headers = {};
-
-    for (let i = 0; i < tokens.length; i++) {
-      const t = tokens[i];
-
-      if (t === '-H' || t === '--header') {
-        const h = tokens[++i] || '';
-        const p = h.indexOf(':');
-        if (p > 0) headers[h.slice(0, p).trim().toLowerCase()] = h.slice(p + 1).trim();
-      } else if (t === '-X' || t === '--request') {
-        method = (tokens[++i] || '').toUpperCase();
-      } else if (
-        t === '-d' || t === '--data' || t === '--data-raw' ||
-        t === '--data-binary' || t === '--data-urlencode'
-      ) {
-        body = tokens[++i] || '';
-        if (!method) method = 'POST';
-      } else if (t === '-b' || t === '--cookie') {
-        headers.cookie = tokens[++i] || '';
-      } else if (t === '-A' || t === '--user-agent') {
-        headers['user-agent'] = tokens[++i] || '';
-      } else if (t === '-e' || t === '--referer') {
-        headers.referer = tokens[++i] || '';
-      } else if (t === '--url') {
-        url = tokens[++i] || '';
-      } else if (!t.startsWith('-') && !url) {
-        url = t;
-      }
+    function load(key) {
+        const prefs = readStore();
+        return prefs && key in prefs ? prefs[key] : null;
     }
 
-    if (!url) throw new Error('No URL found in the cURL command.');
-    if (!/^https?:\/\//i.test(url)) url = new URL(url, location.href).href;
-
-    return { method: method || (body ? 'POST' : 'GET'), url, headers, body };
-  }
-
-  function parseRawRequest(raw) {
-    const text = String(raw).replace(/\r\n/g, '\n').trim();
-
-    // Also accept a DevTools "Copy as cURL" command.
-    if (/^curl(\.exe)?\s/i.test(text)) return parseCurl(text);
-
-    const split = text.indexOf('\n\n');
-    const head = split === -1 ? text : text.slice(0, split);
-    const body = split === -1 ? '' : text.slice(split + 2);
-
-    const lines = head.split('\n').filter((l) => l.trim() !== '');
-    const first = lines.shift() || '';
-    const m = /^([A-Z]+)\s+(\S+)\s+HTTP\/[\d.]+$/i.exec(first.trim());
-
-    if (!m) {
-      throw new Error('Not a raw HTTP request line. Expected e.g. "GET /path HTTP/1.1".');
-    }
-
-    const headers = {};
-    for (const line of lines) {
-      const i = line.indexOf(':');
-      if (i < 1) continue;
-      const key = line.slice(0, i).trim().toLowerCase();
-      const value = line.slice(i + 1).trim();
-      headers[key] = headers[key] ? `${headers[key]}, ${value}` : value;
-    }
-
-    const host = headers.host;
-    if (!host) throw new Error('Missing Host header.');
-
-    let url = m[2];
-    if (!/^https?:\/\//i.test(url)) {
-      const scheme = host.endsWith(':80')
-        ? 'http'
-        : (location.protocol === 'http:' && !host.endsWith(':443') ? 'http' : 'https');
-      url = `${scheme}://${host}${url.startsWith('/') ? '' : '/'}${url}`;
-    }
-
-    return { method: m[1].toUpperCase(), url, headers, body };
-  }
-
-  // Headers a browser refuses to let JS set, or that must come from the live session.
-  const SKIP_HEADER = /^(host|cookie|content-length|connection|accept-encoding|upgrade-insecure-requests|priority|referer|origin|user-agent|sec-.*)$/i;
-
-  async function sendRequest(req) {
-    const headers = {};
-    for (const [key, value] of Object.entries(req.headers)) {
-      if (SKIP_HEADER.test(key)) continue;
-      headers[key] = value;
-    }
-
-    const init = {
-      method: req.method,
-      headers,
-      credentials: 'include', // use the browser's current session cookies
-      redirect: 'follow',
-      cache: 'no-store',
+    /* Material 3 role tones in OKLCH: [lightness, chroma, hue offset from the accent].
+       shortcut: hand-tuned tones instead of HCT; upgrade if a hue needs spec-exact contrast. */
+    const SCHEME = {
+        light: {
+            'primary': [0.44, 0.155, 0],
+            'on-primary': [1, 0, 0],
+            'primary-container': [0.92, 0.055, 0],
+            'on-primary-container': [0.30, 0.095, 0],
+            'secondary-container': [0.93, 0.03, 0],
+            'on-secondary-container': [0.33, 0.04, 0],
+            'error': [0.50, 0.19, 27],
+            'error-container': [0.92, 0.06, 27],
+            'on-error-container': [0.35, 0.12, 27],
+            'on-surface': [0.23, 0.012, 0],
+            'on-surface-variant': [0.44, 0.02, 0],
+            'surface-container-lowest': [1, 0, 0],
+            'surface-container-low': [0.97, 0.008, 0],
+            'surface-container': [0.955, 0.012, 0],
+            'surface-container-high': [0.93, 0.015, 0],
+            'surface-container-highest': [0.90, 0.018, 0],
+            'outline': [0.55, 0.02, 0],
+            'outline-variant': [0.83, 0.02, 0],
+        },
+        dark: {
+            'primary': [0.80, 0.12, 0],
+            'on-primary': [0.28, 0.08, 0],
+            'primary-container': [0.36, 0.11, 0],
+            'on-primary-container': [0.92, 0.05, 0],
+            'secondary-container': [0.33, 0.03, 0],
+            'on-secondary-container': [0.90, 0.03, 0],
+            'error': [0.78, 0.14, 27],
+            'error-container': [0.37, 0.12, 27],
+            'on-error-container': [0.92, 0.06, 27],
+            'on-surface': [0.91, 0.012, 0],
+            'on-surface-variant': [0.78, 0.02, 0],
+            'surface-container-lowest': [0.12, 0.01, 0],
+            'surface-container-low': [0.185, 0.013, 0],
+            'surface-container': [0.215, 0.015, 0],
+            'surface-container-high': [0.255, 0.017, 0],
+            'surface-container-highest': [0.30, 0.019, 0],
+            'outline': [0.66, 0.02, 0],
+            'outline-variant': [0.42, 0.02, 0],
+        },
     };
 
-    if (req.method !== 'GET' && req.method !== 'HEAD') init.body = req.body || '';
+    let hue = 265;
+    let theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    try {
+        const savedHue = load(HUE_KEY);
+        const hueValue = savedHue === null ? NaN : Number(savedHue);
+        if (Number.isFinite(hueValue) && hueValue >= 0 && hueValue < 360) hue = Math.round(hueValue);
 
-    return fetch(req.url, init);
-  }
-
-  // If the pasted blob already contains an HTTP response (or raw HTML), use it as-is.
-  function extractInlineResponse(raw) {
-    const text = String(raw).replace(/\r\n/g, '\n');
-    const status = /(?:^|\n)HTTP\/\d(?:\.\d)?\s+\d{3}[^\n]*\n/.exec(text);
-
-    let section = text;
-
-    if (status) {
-      const rest = text.slice(status.index + status[0].length);
-      const headersEnd = rest.indexOf('\n\n');
-      section = headersEnd === -1 ? rest : rest.slice(headersEnd + 2);
-    } else if (/^\s*</.test(text)) {
-      section = text;
-    } else {
-      return null;
+        const savedTheme = load(THEME_KEY);
+        if (savedTheme === 'light' || savedTheme === 'dark') theme = savedTheme;
+    } catch (e) {
+        /* storage blocked, keep the system default */
     }
 
-    return MARKER.test(section) || /<html[\s>]/i.test(section) ? section : null;
-  }
+    function themeCss() {
+        const block = (mode) =>
+            Object.entries(SCHEME[mode])
+                .map(([role, [l, c, offset]]) => `--md-sys-color-${role}: oklch(${l} ${c} ${(hue + offset) % 360});`)
+                .join(' ');
 
-  /* =========================================================
-   * 6. Panel UI (Shadow DOM so the LMS CSS can't break it)
-   * ========================================================= */
-
-  /* --- Stealth build (red-team reference) ------------------------------
-     Forensic channels of the previous build, all closed:
-       1. no cookies    - nothing of ours appears in any request header
-       2. no fixed key  - one storage entry, name derived from the host
-       3. no globals    - no unsafeWindow.LMSDevAnswers unless DEV
-       4. no external  - no Google Fonts request, no DNS leak
-       5. no static id - element ids and theme attribute are randomised
-       6. no extra GET - the request replay is DEV-only
-     Theme/hue still persist: the LMS only calls removeItem() on its own
-     keys, it never clears the whole store.
-     -------------------------------------------------------------------- */
-
-  const DEV = /[?&]__lmsdev=1\b/.test(location.search);
-
-  const RID = () => Math.random().toString(36).slice(2, 10);
-  const HOST_ID = 'x' + RID();
-  const FAB_ID = 'y' + RID();
-  const FONT_ID = 'lms-payload-reader-font';
-  const THEME_ATTR = 'data-' + RID();
-  const HUE_KEY = 'hue';
-  const THEME_KEY = 'theme';
-
-  // One entry, name carries no recognisable string.
-  const STORE_KEY =
-    '_' +
-    [...location.hostname].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(36);
-
-  function readStore() {
-    for (const store of [localStorage, sessionStorage]) {
-      try {
-        const raw = store.getItem(STORE_KEY);
-        if (raw) return JSON.parse(raw);
-      } catch (e) {
-        /* storage blocked or corrupt entry */
-      }
-    }
-    return null;
-  }
-
-  function load(key) {
-    const prefs = readStore();
-    return prefs && key in prefs ? prefs[key] : null;
-  }
-
-  /* Material 3 role tones in OKLCH: [lightness, chroma, hue offset from the accent].
-     shortcut: hand-tuned tones instead of HCT; upgrade if a hue needs spec-exact contrast. */
-  const SCHEME = {
-    light: {
-      'primary': [0.44, 0.155, 0],
-      'on-primary': [1, 0, 0],
-      'primary-container': [0.92, 0.055, 0],
-      'on-primary-container': [0.30, 0.095, 0],
-      'secondary-container': [0.93, 0.03, 0],
-      'on-secondary-container': [0.33, 0.04, 0],
-      'tertiary-container': [0.92, 0.05, 60],
-      'on-tertiary-container': [0.32, 0.07, 60],
-      'error': [0.50, 0.19, 27],
-      'on-error': [1, 0, 0],
-      'error-container': [0.92, 0.06, 27],
-      'on-error-container': [0.35, 0.12, 27],
-      'surface': [0.985, 0.006, 0],
-      'on-surface': [0.23, 0.012, 0],
-      'on-surface-variant': [0.44, 0.02, 0],
-      'surface-container-lowest': [1, 0, 0],
-      'surface-container-low': [0.97, 0.008, 0],
-      'surface-container': [0.955, 0.012, 0],
-      'surface-container-high': [0.93, 0.015, 0],
-      'surface-container-highest': [0.90, 0.018, 0],
-      'outline': [0.55, 0.02, 0],
-      'outline-variant': [0.83, 0.02, 0],
-    },
-    dark: {
-      'primary': [0.80, 0.12, 0],
-      'on-primary': [0.28, 0.08, 0],
-      'primary-container': [0.36, 0.11, 0],
-      'on-primary-container': [0.92, 0.05, 0],
-      'secondary-container': [0.33, 0.03, 0],
-      'on-secondary-container': [0.90, 0.03, 0],
-      'tertiary-container': [0.34, 0.05, 60],
-      'on-tertiary-container': [0.91, 0.05, 60],
-      'error': [0.78, 0.14, 27],
-      'on-error': [0.30, 0.10, 27],
-      'error-container': [0.37, 0.12, 27],
-      'on-error-container': [0.92, 0.06, 27],
-      'surface': [0.155, 0.012, 0],
-      'on-surface': [0.91, 0.012, 0],
-      'on-surface-variant': [0.78, 0.02, 0],
-      'surface-container-lowest': [0.12, 0.01, 0],
-      'surface-container-low': [0.185, 0.013, 0],
-      'surface-container': [0.215, 0.015, 0],
-      'surface-container-high': [0.255, 0.017, 0],
-      'surface-container-highest': [0.30, 0.019, 0],
-      'outline': [0.66, 0.02, 0],
-      'outline-variant': [0.42, 0.02, 0],
-    },
-  };
-
-  let hue = 265;
-  let theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  try {
-    const savedHue = load(HUE_KEY);
-    const hueValue = savedHue === null ? NaN : Number(savedHue);
-    if (Number.isFinite(hueValue) && hueValue >= 0 && hueValue < 360) hue = Math.round(hueValue);
-
-    const savedTheme = load(THEME_KEY);
-    if (savedTheme === 'light' || savedTheme === 'dark') theme = savedTheme;
-  } catch (e) {
-    /* storage blocked, keep the system default */
-  }
-
-  function themeCss() {
-    const block = (mode) =>
-      Object.entries(SCHEME[mode])
-        .map(([role, [l, c, offset]]) => `--md-sys-color-${role}: oklch(${l} ${c} ${(hue + offset) % 360});`)
-        .join(' ');
-
-    return `:host([${THEME_ATTR}="light"]) { color-scheme: light; ${block('light')} }
+        return `:host([${THEME_ATTR}="light"]) { color-scheme: light; ${block('light')} }
       :host([${THEME_ATTR}="dark"]) { color-scheme: dark; ${block('dark')} }`;
-  }
-
-  function save(key, value) {
-    const prefs = readStore() || {};
-    prefs[key] = value;
-
-    for (const store of [localStorage, sessionStorage]) {
-      try {
-        store.setItem(STORE_KEY, JSON.stringify(prefs));
-      } catch (e) {
-        /* storage blocked, the choice still applies for this page */
-      }
     }
-  }
 
-  function paint() {
-    const fabHost = document.getElementById(FAB_ID);
-    if (fabHost) fabHost.setAttribute(THEME_ATTR, theme);
+    function save(key, value) {
+        const prefs = readStore() || {};
+        prefs[key] = value;
 
-    const host = document.getElementById(HOST_ID);
-    if (!host) return;
+        for (const store of [localStorage, sessionStorage]) {
+            try {
+                store.setItem(STORE_KEY, JSON.stringify(prefs));
+            } catch (e) {
+                /* storage blocked, the choice still applies for this page */
+            }
+        }
+    }
 
-    host.setAttribute(THEME_ATTR, theme);
-    const root = host.__shadowRoot;
-    root.querySelector('#theme').textContent = themeCss();
+    function paint() {
+        const fabHost = document.getElementById(FAB_ID);
+        if (fabHost) fabHost.setAttribute(THEME_ATTR, theme);
 
-    const wheel = root.querySelector('.wheel');
-    wheel.style.setProperty('--hue', hue);
-    wheel.setAttribute('aria-valuenow', String(hue));
+        const host = document.getElementById(HOST_ID);
+        if (!host) return;
 
-    root.querySelector('[data-act="theme"]').setAttribute('aria-checked', String(theme === 'light'));
-  }
+        host.setAttribute(THEME_ATTR, theme);
+        const root = host.__shadowRoot;
+        root.querySelector('#theme').textContent = themeCss();
 
-  function setHue(value, persist) {
-    const next = Math.round((value + 360) % 360);
-    if (next === hue) return;
+        const wheel = root.querySelector('.wheel');
+        wheel.style.setProperty('--hue', hue);
+        wheel.setAttribute('aria-valuenow', String(hue));
 
-    hue = next;
-    paint();
-    if (persist) save(HUE_KEY, hue);
-  }
+        root.querySelector('[data-act="theme"]').setAttribute('aria-checked', String(theme === 'light'));
+    }
 
-  function setTheme(next) {
-    theme = next;
-    paint();
-    save(THEME_KEY, theme);
-  }
+    function setHue(value, persist) {
+        const next = Math.round((value + 360) % 360);
+        if (next === hue) return;
 
-  /* Shape, spacing, type and motion tokens shared by the panel and the FAB. */
-  const TOKENS = `
+        hue = next;
+        paint();
+        if (persist) save(HUE_KEY, hue);
+    }
+
+    function setTheme(next) {
+        theme = next;
+        paint();
+        save(THEME_KEY, theme);
+    }
+
+    /* Shape, spacing, type and motion tokens shared by the panel and the FAB. */
+    const TOKENS = `
     :host {
       --md-font: "Google Sans Flex", "Google Sans", Roboto, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
       font-variation-settings: 'ROND' 100;
@@ -763,7 +752,6 @@
       --sp-2: 8px;
       --sp-3: 12px;
       --sp-4: 16px;
-      --sp-6: 24px;
       --sp-8: 32px;
 
       --md-sys-shape-corner-extra-small: 4px;
@@ -796,7 +784,7 @@
     }
   `;
 
-  const FAB_CSS = `
+    const FAB_CSS = `
     * { box-sizing: border-box; }
     .fab {
       width: 56px; height: 56px; padding: 0;
@@ -819,7 +807,7 @@
     @media (prefers-reduced-motion: reduce) { .fab { transition: none; animation: none; } }
   `;
 
-  const CSS = `
+    const CSS = `
     * { box-sizing: border-box; }
     ::selection {
       background: var(--md-sys-color-primary-container);
@@ -1161,44 +1149,43 @@
     }
   `;
 
-  function ensureFont() {
-    if (document.getElementById(FONT_ID)) return;
+    function ensureFont() {
+        if (document.getElementById(FONT_ID)) return;
 
-    const head = document.head || document.documentElement;
-    const links = [
-      { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
-      { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossOrigin: '' },
-      {
-        rel: 'stylesheet',
-        id: FONT_ID,
-        href: 'https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght,ROND@100..1000,100&display=swap',
-      },
-    ];
+        const head = document.head || document.documentElement;
+        const links = [
+            { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+            { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossOrigin: '' },
+            {
+                rel: 'stylesheet',
+                id: FONT_ID,
+                href: 'https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght,ROND@100..1000,100&display=swap',
+            },
+        ];
 
-    for (const attrs of links) {
-      const link = document.createElement('link');
-      Object.assign(link, attrs);
-      head.appendChild(link);
+        for (const attrs of links) {
+            const link = document.createElement('link');
+            Object.assign(link, attrs);
+            head.appendChild(link);
+        }
     }
-  }
 
-  let lastReport = null;
-  let booted = false;
+    let booted = false;
 
-  function ensurePanel() {
-    let host = document.getElementById(HOST_ID);
-    if (host) return host.__shadowRoot;
+    function ensurePanel() {
+        let host = document.getElementById(HOST_ID);
+        if (host) return host.__shadowRoot;
 
-    document.getElementById(FAB_ID)?.remove();
-    ensureFont();
+        document.getElementById(FAB_ID)?.remove();
+        ensureFont();
 
-    host = document.createElement('div');
-    host.id = HOST_ID;
-    host.setAttribute(THEME_ATTR, theme);
-    host.style.cssText = 'position:fixed;top:72px;right:24px;z-index:2147483647;';
+        host = document.createElement('div');
+        host.id = HOST_ID;
+        host.setAttribute(THEME_ATTR, theme);
+        host.style.cssText = 'position:fixed;top:72px;right:24px;z-index:2147483647;';
 
-    const root = host.attachShadow({ mode: 'open' });
-    root.innerHTML = `
+        const root = host.attachShadow({ mode: 'open' });
+        root.innerHTML = `
       <style>${TOKENS}${CSS}</style>
       <style id="theme">${themeCss()}</style>
       <div class="panel">
@@ -1231,188 +1218,187 @@
         <div class="body" role="region" aria-label="Exam answers"></div>
       </div>`;
 
-    (document.body || document.documentElement).appendChild(host);
+        (document.body || document.documentElement).appendChild(host);
 
-    host.__shadowRoot = root;
-    wirePanel(host, root);
-    makeDraggable(host, root);
-    return root;
-  }
+        host.__shadowRoot = root;
+        wirePanel(host, root);
+        makeDraggable(host, root);
+        return root;
+    }
 
-  function makeDraggable(host, root) {
-    const bar = root.querySelector('.bar');
-    const panel = root.querySelector('.panel');
+    function makeDraggable(host, root) {
+        const bar = root.querySelector('.bar');
+        const panel = root.querySelector('.panel');
 
-    let dragging = false;
-    let startX = 0;
-    let startY = 0;
-    let originX = 0;
-    let originY = 0;
+        let dragging = false;
+        let startX = 0;
+        let startY = 0;
+        let originX = 0;
+        let originY = 0;
 
-    bar.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('button')) return;
+        bar.addEventListener('pointerdown', (e) => {
+            if (e.target.closest('button')) return;
 
-      const rect = panel.getBoundingClientRect();
-      dragging = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      originX = rect.left;
-      originY = rect.top;
+            const rect = panel.getBoundingClientRect();
+            dragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            originX = rect.left;
+            originY = rect.top;
 
-      host.style.left = `${rect.left}px`;
-      host.style.top = `${rect.top}px`;
-      host.style.right = 'auto';
+            host.style.left = `${rect.left}px`;
+            host.style.top = `${rect.top}px`;
+            host.style.right = 'auto';
 
-      bar.setPointerCapture(e.pointerId);
-    });
+            bar.setPointerCapture(e.pointerId);
+        });
 
-    bar.addEventListener('pointermove', (e) => {
-      if (!dragging) return;
+        bar.addEventListener('pointermove', (e) => {
+            if (!dragging) return;
 
-      const x = Math.min(Math.max(0, originX + e.clientX - startX), window.innerWidth - 90);
-      const y = Math.min(Math.max(0, originY + e.clientY - startY), window.innerHeight - 40);
-      host.style.left = `${x}px`;
-      host.style.top = `${y}px`;
-    });
+            const x = Math.min(Math.max(0, originX + e.clientX - startX), window.innerWidth - 90);
+            const y = Math.min(Math.max(0, originY + e.clientY - startY), window.innerHeight - 40);
+            host.style.left = `${x}px`;
+            host.style.top = `${y}px`;
+        });
 
-    const stop = () => { dragging = false; };
-    bar.addEventListener('pointerup', stop);
-    bar.addEventListener('pointercancel', stop);
-  }
+        const stop = () => { dragging = false; };
+        bar.addEventListener('pointerup', stop);
+        bar.addEventListener('pointercancel', stop);
+    }
 
-  function wirePanel(host, root) {
-    const menu = root.querySelector('.menu');
-    const trigger = root.querySelector('[data-act="menu"]');
+    function wirePanel(host, root) {
+        const menu = root.querySelector('.menu');
+        const trigger = root.querySelector('[data-act="menu"]');
 
-    let outside = null;
+        let outside = null;
 
-    const closeMenu = () => {
-      if (menu.hidden) return;
+        const closeMenu = () => {
+            if (menu.hidden) return;
 
-      menu.hidden = true;
-      trigger.setAttribute('aria-expanded', 'false');
-      document.removeEventListener('pointerdown', outside, true);
-      outside = null;
-    };
+            menu.hidden = true;
+            trigger.setAttribute('aria-expanded', 'false');
+            document.removeEventListener('pointerdown', outside, true);
+            outside = null;
+        };
 
-    const openMenu = () => {
-      menu.hidden = false;
-      trigger.setAttribute('aria-expanded', 'true');
-      outside = (e) => {
-        if (!e.composedPath().includes(host)) closeMenu();
-      };
-      document.addEventListener('pointerdown', outside, true);
-    };
+        const openMenu = () => {
+            menu.hidden = false;
+            trigger.setAttribute('aria-expanded', 'true');
+            outside = (e) => {
+                if (!e.composedPath().includes(host)) closeMenu();
+            };
+            document.addEventListener('pointerdown', outside, true);
+        };
 
-    const setMenu = (open) => (open ? openMenu() : closeMenu());
+        const setMenu = (open) => (open ? openMenu() : closeMenu());
 
-    root.addEventListener('click', async (e) => {
-      const actBtn = e.target.closest('button[data-act]');
-      if (actBtn) {
-        const act = actBtn.dataset.act;
+        root.addEventListener('click', async (e) => {
+            const actBtn = e.target.closest('button[data-act]');
+            if (actBtn) {
+                const act = actBtn.dataset.act;
 
-        if (act === 'menu') setMenu(menu.hidden);
-        else if (act === 'scan') { closeMenu(); scanAndRender(); }
-        else if (act === 'test') { closeMenu(); showTest(); }
-        else if (act === 'theme') setTheme(theme === 'light' ? 'dark' : 'light');
-        else if (act === 'min') root.querySelector('.panel').classList.toggle('min');
-        else if (act === 'close') {
-          closeMenu();
-          host.remove();
-          showFab();
-        }
-        return;
-      }
+                if (act === 'menu') setMenu(menu.hidden);
+                else if (act === 'scan') { closeMenu(); scanAndRender(); }
+                else if (act === 'test') { closeMenu(); showTest(); }
+                else if (act === 'theme') setTheme(theme === 'light' ? 'dark' : 'light');
+                else if (act === 'min') root.querySelector('.panel').classList.toggle('min');
+                else if (act === 'close') {
+                    closeMenu();
+                    host.remove();
+                    showFab();
+                }
+                return;
+            }
 
-      const testBtn = e.target.closest('button[data-test]');
-      if (testBtn) {
-        const act = testBtn.dataset.test;
-        if (act === 'send') doTest(false);
-        else if (act === 'parse') doTest(true);
-        else if (act === 'clear') showTest();
-      }
-    });
+            const testBtn = e.target.closest('button[data-test]');
+            if (testBtn) {
+                const act = testBtn.dataset.test;
+                if (act === 'send') doTest(false);
+                else if (act === 'parse') doTest(true);
+                else if (act === 'clear') showTest();
+            }
+        });
 
-    root.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeMenu();
-    });
+        root.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeMenu();
+        });
 
-    const wheel = root.querySelector('.wheel');
-    let dragging = false;
+        const wheel = root.querySelector('.wheel');
+        let dragging = false;
 
-    const pick = (e) => {
-      const rect = wheel.getBoundingClientRect();
-      const x = e.clientX - (rect.left + rect.width / 2);
-      const y = e.clientY - (rect.top + rect.height / 2);
-      setHue((Math.atan2(y, x) * 180) / Math.PI + 90, false);
-    };
+        const pick = (e) => {
+            const rect = wheel.getBoundingClientRect();
+            const x = e.clientX - (rect.left + rect.width / 2);
+            const y = e.clientY - (rect.top + rect.height / 2);
+            setHue((Math.atan2(y, x) * 180) / Math.PI + 90, false);
+        };
 
-    wheel.addEventListener('pointerdown', (e) => {
-      dragging = true;
-      wheel.setPointerCapture(e.pointerId);
-      pick(e);
-      e.preventDefault();
-    });
-    wheel.addEventListener('pointermove', (e) => { if (dragging) pick(e); });
-    wheel.addEventListener('pointerup', () => { dragging = false; save(HUE_KEY, hue); });
-    wheel.addEventListener('pointercancel', () => { dragging = false; save(HUE_KEY, hue); });
+        wheel.addEventListener('pointerdown', (e) => {
+            dragging = true;
+            wheel.setPointerCapture(e.pointerId);
+            pick(e);
+            e.preventDefault();
+        });
+        wheel.addEventListener('pointermove', (e) => { if (dragging) pick(e); });
+        wheel.addEventListener('pointerup', () => { dragging = false; save(HUE_KEY, hue); });
+        wheel.addEventListener('pointercancel', () => { dragging = false; save(HUE_KEY, hue); });
 
-    wheel.addEventListener('keydown', (e) => {
-      const step = e.shiftKey ? 15 : 5;
+        wheel.addEventListener('keydown', (e) => {
+            const step = e.shiftKey ? 15 : 5;
 
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') setHue(hue - step, true);
-      else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') setHue(hue + step, true);
-      else return;
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') setHue(hue - step, true);
+            else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') setHue(hue + step, true);
+            else return;
 
-      e.preventDefault();
-    });
-  }
+            e.preventDefault();
+        });
+    }
 
-  function showFab() {
-    if (document.getElementById(FAB_ID)) return;
+    function showFab() {
+        if (document.getElementById(FAB_ID)) return;
 
-    ensureFont();
+        ensureFont();
 
-    const host = document.createElement('div');
-    host.id = FAB_ID;
-    host.setAttribute(THEME_ATTR, theme);
-    host.style.cssText = 'position:fixed;right:24px;bottom:24px;z-index:2147483647;';
+        const host = document.createElement('div');
+        host.id = FAB_ID;
+        host.setAttribute(THEME_ATTR, theme);
+        host.style.cssText = 'position:fixed;right:24px;bottom:24px;z-index:2147483647;';
 
-    const root = host.attachShadow({ mode: 'open' });
-    root.innerHTML = `<style>${TOKENS}${themeCss()}${FAB_CSS}</style>
+        const root = host.attachShadow({ mode: 'open' });
+        root.innerHTML = `<style>${TOKENS}${themeCss()}${FAB_CSS}</style>
       <button class="fab" type="button" title="Open LMS payload reader" aria-label="Open LMS payload reader">K12</button>`;
 
-    root.querySelector('.fab').addEventListener('click', () => {
-      host.remove();
-      ensurePanel();
-      scanAndRender();
-    });
+        root.querySelector('.fab').addEventListener('click', () => {
+            host.remove();
+            ensurePanel();
+            scanAndRender();
+        });
 
-    (document.body || document.documentElement).appendChild(host);
-  }
-
-  function scanAndRender() {
-    const root = ensurePanel();
-    root.querySelector('.panel').classList.remove('testing');
-
-    try {
-      lastReport = buildReport(document.documentElement.outerHTML);
-      root.querySelector('.body').innerHTML = reportHtml(lastReport);
-    } catch (e) {
-      lastReport = null;
-      root.querySelector('.body').innerHTML =
-        `<div class="empty"><b>No exam payload on this page.</b><br>${esc(e.message)}` +
-        `<br><br>Use <b>&#8943; &rarr; Replay request</b> and paste a raw request or response.</div>`;
+        (document.body || document.documentElement).appendChild(host);
     }
-  }
 
-  function showTest() {
-    const root = ensurePanel();
-    const body = root.querySelector('.body');
-    const previous = body.querySelector('textarea')?.value || '';
+    function scanAndRender() {
+        const root = ensurePanel();
+        root.querySelector('.panel').classList.remove('testing');
 
-    root.querySelector('.panel').classList.add('testing');
-    body.innerHTML = `
+        try {
+            root.querySelector('.body').innerHTML =
+                reportHtml(buildReport(document.documentElement.outerHTML));
+        } catch (e) {
+            root.querySelector('.body').innerHTML =
+                `<div class="empty"><b>No exam payload on this page.</b><br>${esc(e.message)}` +
+                `<br><br>Use <b>&#8943; &rarr; Replay request</b> and paste a raw request or response.</div>`;
+        }
+    }
+
+    function showTest() {
+        const root = ensurePanel();
+        const body = root.querySelector('.body');
+        const previous = body.querySelector('textarea')?.value || '';
+
+        root.querySelector('.panel').classList.add('testing');
+        body.innerHTML = `
       <div class="test">
         <div class="hint">
           Paste a raw HTTP request (DevTools &rarr; Copy as cURL also works), or a raw HTTP response / HTML.
@@ -1427,123 +1413,122 @@
         <div class="status" role="status" aria-live="polite"></div>
       </div>`;
 
-    const ta = root.querySelector('textarea');
-    ta.value = previous;
-    ta.focus();
-  }
-
-  async function doTest(parseOnly) {
-    const root = ensurePanel();
-    const body = root.querySelector('.body');
-    const ta = body.querySelector('textarea');
-    const status = body.querySelector('.status');
-
-    if (!ta || !status) return;
-
-    const raw = ta.value.trim();
-    body.querySelector('.result')?.remove();
-
-    const controls = Array.from(body.querySelectorAll('[data-test="send"], [data-test="parse"]'));
-
-    const say = (message, isError) => {
-      status.className = `status${isError ? ' err' : ''}`;
-      status.removeAttribute('aria-busy');
-      status.textContent = message;
-      controls.forEach((btn) => { btn.disabled = false; });
-    };
-
-    const working = (label) => {
-      status.className = 'status loading';
-      status.setAttribute('aria-busy', 'true');
-      status.innerHTML =
-        '<span class="spinner" aria-hidden="true">' +
-        '<svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"/></svg></span>' +
-        `<span>${esc(label)}</span>`;
-      controls.forEach((btn) => { btn.disabled = true; });
-    };
-
-    if (!raw) {
-      say('Paste a request or response first.', true);
-      return;
+        const ta = root.querySelector('textarea');
+        ta.value = previous;
+        ta.focus();
     }
 
-    working('Working\u2026');
+    async function doTest(parseOnly) {
+        const root = ensurePanel();
+        const body = root.querySelector('.body');
+        const ta = body.querySelector('textarea');
+        const status = body.querySelector('.status');
 
-    try {
-      let html;
-      let note;
-      const inline = extractInlineResponse(raw);
+        if (!ta || !status) return;
 
-      if (parseOnly || inline) {
-        if (!inline) throw new Error('No HTTP response or HTML block found in the pasted text.');
-        html = inline;
-        note = 'Parsed the pasted response locally (nothing was sent).';
-      } else {
-        const req = parseRawRequest(raw);
-        const started = Date.now();
-        const res = await sendRequest(req);
-        html = await res.text();
-        note = `${req.method} ${res.url} · HTTP ${res.status} ${res.statusText} · ` +
-               `${html.length.toLocaleString()} bytes · ${Date.now() - started} ms`;
+        const raw = ta.value.trim();
+        body.querySelector('.result')?.remove();
 
-        if (!res.ok) throw new Error(`${note} — request failed.`);
+        const controls = Array.from(body.querySelectorAll('[data-test="send"], [data-test="parse"]'));
 
-        if (!MARKER.test(html)) {
-          const looksLikeLogin = /login|đăng nhập|sign in/i.test(html);
-          throw new Error(
-            `${note} — no exam payload in the response.` +
-            (looksLikeLogin ? ' Looks like a login page; the session may have expired.' : '')
-          );
+        const say = (message, isError) => {
+            status.className = `status${isError ? ' err' : ''}`;
+            status.removeAttribute('aria-busy');
+            status.textContent = message;
+            controls.forEach((btn) => { btn.disabled = false; });
+        };
+
+        const working = (label) => {
+            status.className = 'status loading';
+            status.setAttribute('aria-busy', 'true');
+            status.innerHTML =
+                '<span class="spinner" aria-hidden="true">' +
+                '<svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"/></svg></span>' +
+                `<span>${esc(label)}</span>`;
+            controls.forEach((btn) => { btn.disabled = true; });
+        };
+
+        if (!raw) {
+            say('Paste a request or response first.', true);
+            return;
         }
-      }
 
-      const report = buildReport(html);
-      lastReport = report;
+        working('Working\u2026');
 
-      say(`${note} · ${report.itemCount} câu`);
+        try {
+            let html;
+            let note;
+            const inline = extractInlineResponse(raw);
 
-      const result = document.createElement('div');
-      result.className = 'result';
-      result.innerHTML = reportHtml(report);
-      body.appendChild(result);
-    } catch (e) {
-      say(e && e.message ? e.message : String(e), true);
-    }
-  }
+            if (parseOnly || inline) {
+                if (!inline) throw new Error('No HTTP response or HTML block found in the pasted text.');
+                html = inline;
+                note = 'Parsed the pasted response locally (nothing was sent).';
+            } else {
+                const req = parseRawRequest(raw);
+                const started = Date.now();
+                const res = await sendRequest(req);
+                html = await res.text();
+                note = `${req.method} ${res.url} · HTTP ${res.status} ${res.statusText} · ` +
+                    `${html.length.toLocaleString()} bytes · ${Date.now() - started} ms`;
 
-  function renderReport(report) {
-    const root = ensurePanel();
-    root.querySelector('.panel').classList.remove('testing');
-    root.querySelector('.body').innerHTML = reportHtml(report);
-  }
+                if (!res.ok) throw new Error(`${note} — request failed.`);
 
-  /* =========================================================
-   * 7. HTML rendering
-   * ========================================================= */
+                if (!MARKER.test(html)) {
+                    const looksLikeLogin = /login|đăng nhập|sign in/i.test(html);
+                    throw new Error(
+                        `${note} — no exam payload in the response.` +
+                        (looksLikeLogin ? ' Looks like a login page; the session may have expired.' : '')
+                    );
+                }
+            }
 
-  function questionHtml(q, i) {
-    const num = q.domNumber || q.index || '';
-    let opts = '';
+            const report = buildReport(html);
 
-    if (q.kind === 'choice') {
-      opts = q.options
-        .map((o) => `<span class="opt${o.marked ? ' on' : ''}">${esc(o.label)}${o.marked ? '<i>&#10003;</i>' : ''}</span>`)
-        .join('');
-    } else if (q.kind === 'truefalse') {
-      opts = q.statements
-        .map((s) => {
-          const cls = s.truth === true ? ' on' : s.truth === false ? ' off' : '';
-          const val = s.truth === true ? 'Đ' : s.truth === false ? 'S' : '?';
-          return `<span class="opt tf${cls}">${esc(s.label)} <b>${val}</b></span>`;
-        })
-        .join('');
-    } else if (q.kind === 'short') {
-      opts = q.parts
-        .map((p) => `<span class="opt blank" title="${esc(p.key)}">${p.value === '' ? '&empty;' : esc(p.value)}</span>`)
-        .join('');
+            say(`${note} · ${report.itemCount} câu`);
+
+            const result = document.createElement('div');
+            result.className = 'result';
+            result.innerHTML = reportHtml(report);
+            body.appendChild(result);
+        } catch (e) {
+            say(e && e.message ? e.message : String(e), true);
+        }
     }
 
-    return `<div class="q" style="--i:${Math.min(i || 0, 12)}">
+    function renderReport(report) {
+        const root = ensurePanel();
+        root.querySelector('.panel').classList.remove('testing');
+        root.querySelector('.body').innerHTML = reportHtml(report);
+    }
+
+    /* =========================================================
+     * 7. HTML rendering
+     * ========================================================= */
+
+    function questionHtml(q, i) {
+        const num = q.domNumber || q.index || '';
+        let opts = '';
+
+        if (q.kind === 'choice') {
+            opts = q.options
+                .map((o) => `<span class="opt${o.marked ? ' on' : ''}">${esc(o.label)}${o.marked ? '<i>&#10003;</i>' : ''}</span>`)
+                .join('');
+        } else if (q.kind === 'truefalse') {
+            opts = q.statements
+                .map((s) => {
+                    const cls = s.truth === true ? ' on' : s.truth === false ? ' off' : '';
+                    const val = s.truth === true ? 'Đ' : s.truth === false ? 'S' : '?';
+                    return `<span class="opt${cls}">${esc(s.label)} <b>${val}</b></span>`;
+                })
+                .join('');
+        } else if (q.kind === 'short') {
+            opts = q.parts
+                .map((p) => `<span class="opt blank" title="${esc(p.key)}">${p.value === '' ? '&empty;' : esc(p.value)}</span>`)
+                .join('');
+        }
+
+        return `<div class="q" style="--i:${Math.min(i || 0, 12)}">
       <div class="q-top">
         <span class="num">${esc(num)}</span>
         <span class="qtitle" title="${esc(q.title)}">${esc(q.title)}</span>
@@ -1551,99 +1536,98 @@
       ${opts ? `<div class="opts">${opts}</div>` : ''}
       ${q.note ? `<div class="note">${esc(q.note)}</div>` : ''}
     </div>`;
-  }
+    }
 
-  function reportHtml(report) {
-    const groups = report.groups
-      .map(
-        (g) => `<section class="part">
+    function reportHtml(report) {
+        const groups = report.groups
+            .map(
+                (g) => `<section class="part">
           <div class="part-head">${esc(g.name)} <em>${g.questions.length}</em></div>
           ${g.questions.map((q, i) => questionHtml(q, i)).join('')}
         </section>`
-      )
-      .join('');
+            )
+            .join('');
 
-    return groups || '<div class="empty">No questions found.</div>';
-  }
-
-  /* =========================================================
-   * 8. Boot
-   * ========================================================= */
-
-  function boot() {
-    if (booted) return;
-    booted = true;
-
-    ensureFont();
-    showFab();
-
-    const onExamPage = /Courseware\/Exam\/doExam/i.test(location.pathname + location.search);
-
-    try {
-      const report = buildReport(document.documentElement.outerHTML);
-      lastReport = report;
-      renderReport(report);
-      return;
-    } catch (e) {
-      /* fall through */
+        return groups || '<div class="empty">No questions found.</div>';
     }
 
-    if (onExamPage) {
-      ensurePanel();
-      showTest();
-    }
-  }
+    /* =========================================================
+     * 8. Boot
+     * ========================================================= */
 
-  /* Self-check: the stealth invariants must hold. Dev only.
-     shortcut: asserts the two properties that matter (no cookie written,
-     prefs persisted); upgrade if more channels are added. */
-  function selfCheck() {
-    const before = document.cookie;
+    function boot() {
+        if (booted) return;
+        booted = true;
 
-    save(THEME_KEY, theme);
+        ensureFont();
+        showFab();
 
-    if (document.cookie !== before) throw new Error('stealth: a cookie was written');
-    if (load(THEME_KEY) !== theme) throw new Error('stealth: prefs did not persist');
-    if (/payload|reader|lms/i.test(STORE_KEY)) throw new Error('stealth: storage key is recognisable');
+        const onExamPage = /Courseware\/Exam\/doExam/i.test(location.pathname + location.search);
 
-    return true;
-  }
+        try {
+            const report = buildReport(document.documentElement.outerHTML);
+            renderReport(report);
+            return;
+        } catch (e) {
+            /* fall through */
+        }
 
-  // Alt+Shift+A opens/re-scans the panel on any matched page.
-  window.addEventListener(
-    'keydown',
-    (e) => {
-      if (!e.shiftKey) return;
-      if (String(e.key).toLowerCase() !== 'a') return;
-
-      e.preventDefault();
-      e.stopPropagation();
-      ensurePanel();
-      scanAndRender();
-    },
-    true
-  );
-
-  // Console/test API - dev only, a page-visible global is a fingerprint.
-  if (DEV) {
-    const API = { extractItems, extractInlineResponse, buildReport, describeItem, parseRawRequest, sendRequest, reportText };
-    try {
-      (typeof unsafeWindow !== 'undefined' ? unsafeWindow : window).LMSDevAnswers = API;
-    } catch (e) {
-      /* ignore */
+        if (onExamPage) {
+            ensurePanel();
+            showTest();
+        }
     }
 
-    try {
-      selfCheck();
-      console.info('[reader] self-check ok');
-    } catch (e) {
-      console.error('[reader]', e.message);
-    }
-  }
+    /* Self-check: the stealth invariants must hold. Dev only.
+       shortcut: asserts the two properties that matter (no cookie written,
+       prefs persisted); upgrade if more channels are added. */
+    function selfCheck() {
+        const before = document.cookie;
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => setTimeout(boot, 500), { once: true });
-  } else {
-    setTimeout(boot, 500);
-  }
+        save(THEME_KEY, theme);
+
+        if (document.cookie !== before) throw new Error('stealth: a cookie was written');
+        if (load(THEME_KEY) !== theme) throw new Error('stealth: prefs did not persist');
+        if (/payload|reader|lms/i.test(STORE_KEY)) throw new Error('stealth: storage key is recognisable');
+
+        return true;
+    }
+
+    // Alt+Shift+A opens/re-scans the panel on any matched page.
+    window.addEventListener(
+        'keydown',
+        (e) => {
+            if (!e.shiftKey) return;
+            if (String(e.key).toLowerCase() !== 'a') return;
+
+            e.preventDefault();
+            e.stopPropagation();
+            ensurePanel();
+            scanAndRender();
+        },
+        true
+    );
+
+    // Console/test API - dev only, a page-visible global is a fingerprint.
+    if (DEV) {
+        const API = { extractItems, extractInlineResponse, buildReport, describeItem, parseRawRequest, sendRequest, reportText };
+        try {
+            (typeof unsafeWindow !== 'undefined' ? unsafeWindow : window).LMSDevAnswers = API;
+        } catch (e) {
+            /* ignore */
+        }
+
+        try {
+            selfCheck();
+            console.info('[reader] self-check ok');
+        } catch (e) {
+            console.error('[reader]', e.message);
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => setTimeout(boot, 500), { once: true });
+    } else {
+        setTimeout(boot, 500);
+    }
 })();
