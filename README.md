@@ -6,6 +6,12 @@
   <img width="35%" alt="image" src="https://github.com/user-attachments/assets/6cb2c74e-d92c-496f-a84d-305d5ad23da3" />
 </div>
 
+#
+
+[Mirror 1: Greasy Forr](https://greasyfork.org/en/scripts/601808-k12online-examination-hack-cho-b%C3%A0i-ki%E1%BB%83m-tra)
+
+#
+
 ## Hướng dẫn cài đặt:
 1. Cài đặt extension [Tampermonkey](https://www.tampermonkey.net/) cho trình duyệt của bạn.
 2. Bấm vào [Đây](https://github.com/HiennNek/K12Online-Hack/raw/refs/heads/main/k12onlinehack.user.js) để cài đặt K12Online Hack sau khi đã cài xong Tampermonkey
