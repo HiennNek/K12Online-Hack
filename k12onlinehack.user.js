@@ -3,7 +3,7 @@
 // @namespace    https://github.com/HiennNek/K12Online-Hack
 // @version      1.0.2
 // @description  Tìm đáp án bài kiểm tra K12Online
-// @author       dev
+// @author       HiennNek
 // @match        *://*.k12online.vn/*
 // @updateURL    https://github.com/HiennNek/K12Online-Hack/raw/refs/heads/main/k12onlinehack.user.js
 // @downloadURL  https://github.com/HiennNek/K12Online-Hack/raw/refs/heads/main/k12onlinehack.user.js
