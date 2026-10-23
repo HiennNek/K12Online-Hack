@@ -5,6 +5,8 @@
 // @description  Tìm đáp án bài kiểm tra K12Online
 // @author       dev
 // @match        *://*.k12online.vn/*
+// @updateURL    https://raw.githubusercontent.com/HiennNek/K12Online-Hack/refs/heads/main/main.js
+// @downloadURL  https://raw.githubusercontent.com/HiennNek/K12Online-Hack/refs/heads/main/main.js
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
