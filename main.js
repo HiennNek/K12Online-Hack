@@ -1,11 +1,10 @@
 // ==UserScript==
-// @name         LMS Exam Payload Reader (dev / honeypot viewer)
-// @namespace    https://local.dev/lms-payload-reader
-// @version      1.2.21
-// @description  Dev-only: reads the LMS exam payload from the current page (or replays a pasted raw HTTP request) and shows the marked answers (honeypot key) in a readable panel. Supports Choice, True/False and Short answer with any number of options/blanks.
+// @name         K12Online Examination Hack (cho bài kiểm tra)
+// @namespace    https://github.com/HiennNek/K12Online-Hack
+// @version      1.0.0
+// @description  Tìm đáp án bài kiểm tra K12Online
 // @author       dev
-// @match        https://*.k12online.vn/*
-// @match        http://*.k12online.vn/*
+// @match        *://*.k12online.vn/*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
@@ -13,13 +12,10 @@
 (function () {
     'use strict';
 
-    /* =========================================================
-     * 1. Payload extraction (pure string work — no IDs hardcoded)
-     * ========================================================= */
-
+    // Extract payload
     const MARKER = /['"]LMS\.Learning\.Courseware\.Exam['"]\s*,/;
 
-    // Walks a balanced [...] / {...} region, ignoring brackets inside strings.
+    // Ignore brackets inside strings
     function sliceBalanced(text, start, open, close) {
         let depth = 0;
         let quote = null;
@@ -53,14 +49,12 @@
         try {
             return JSON.parse(text);
         } catch (e) {
-            // tolerate trailing commas, the only realistic corruption here
             const cleaned = text.replace(/,\s*([}\]])/g, '$1');
             return JSON.parse(cleaned);
         }
     }
 
-    // Finds `'LMS.Learning.Courseware.Exam', { ... items: [ ... ] ... }`
-    // and returns the items array. No assumption about ids/values.
+    // Find K12's secret stuff hehe
     function extractItems(html) {
         let from = 0;
 
@@ -81,7 +75,7 @@
                         const arr = parseJsonLoose(arrText);
                         if (Array.isArray(arr)) return { items: arr };
                     } catch (e) {
-                        /* keep looking for another marker occurrence */
+                        // Keep looking for another marker occurrence
                     }
                 }
             }
@@ -91,18 +85,13 @@
         return null;
     }
 
-    /* =========================================================
-     * 2. Normalisation / description of items
-     * ========================================================= */
-
+    // Normalisation
     const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     const LOWER = 'abcdefghijklmnopqrstuvwxyz';
 
     const raw = (v) => (v == null ? '' : String(v).trim());
 
-    /* Payload strings sometimes carry markup (<span style="font-size:14px">…,
-       <br>, &nbsp;). Show the text only: drop every tag and attribute, keep the
-       line breaks, decode entities. Inert parse, so no script or image runs. */
+    // HTML formatter so it wont break
     const BLOCKS = new Set([
         'P', 'DIV', 'LI', 'UL', 'OL', 'DL', 'DD', 'DT', 'TR', 'TD', 'TH', 'TABLE',
         'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'SECTION',
@@ -171,7 +160,6 @@
     const isTrueValue = (v) => /^(true|1|đúng|dung|yes|t|đ)$/i.test(txt(v));
     const isFalseValue = (v) => /^(false|0|sai|no|f|s)$/i.test(txt(v));
 
-    // choices may be an object keyed "1".."n" (or anything else)
     function choiceEntries(choices) {
         if (!choices || typeof choices !== 'object') return [];
         return Object.keys(choices)
@@ -188,10 +176,10 @@
         const type = txt(item && item.elementType);
         const keys = Object.keys(item || {});
 
-        // Fill in the blank: any number of answerTextN fields.
+        // Fill in the blank
         if (keys.some((k) => /^answerText\d+$/i.test(k))) return 'short';
 
-        // True/False: explicit type, or choices whose titles are only true/false.
+        // Dung nhan sai cai
         const entries = choiceEntries(item && item.choices);
         if (/truefalse|true_false|^tf/i.test(type)) return 'truefalse';
         if (
@@ -256,10 +244,8 @@
         return out;
     }
 
-    /* =========================================================
-     * 3. Report: read meta + map items to the page's own layout
-     * ========================================================= */
-
+    
+    // Make the extracted data human-readable
     function readMeta(doc) {
         const fields = {};
 
@@ -298,7 +284,7 @@
     function buildReport(html) {
         const found = extractItems(html);
         if (!found) {
-            throw new Error('No LMS.Learning.Courseware.Exam payload found in this HTML.');
+            throw new Error('Không tìm thấy nội dung bài kiểm tra trong URL này.');
         }
 
         const items = found.items;
@@ -320,7 +306,7 @@
         const used = new Set();
 
         if (doc) {
-            // Follow the page's own order + part headers, whatever they are.
+            // Follow the page's own order + part headers, whatever they are
             const lis = doc.querySelectorAll('li[id]');
 
             for (const li of lis) {
@@ -343,7 +329,7 @@
             }
         }
 
-        // Anything not present in the DOM (or no DOM at all): keep it, grouped by type.
+        // Anything not present in the DOM (or no DOM at all) > keep it, grouped by type.
         const leftovers = items.filter((item) => !used.has(txt(item.id || item._id)));
 
         if (leftovers.length) {
@@ -369,10 +355,7 @@
         return { meta, groups, questions, itemCount: items.length };
     }
 
-    /* =========================================================
-     * 4. Plain-text rendering (for Copy)
-     * ========================================================= */
-
+    // Plain-text rendering (for Copy)
     function reportText(report) {
         const lines = [];
         const m = report.meta || {};
@@ -412,10 +395,8 @@
         return lines.join('\n');
     }
 
-    /* =========================================================
-     * 5. Raw HTTP request parser + replay (no hardcoded host/id)
-     * ========================================================= */
 
+    // HTTP request/respond repeater and parser (for testing btw)
     function shellTokens(input) {
         const tokens = [];
         let current = '';
@@ -481,7 +462,7 @@
                 t === '-b' || t === '--cookie' || t === '-A' || t === '--user-agent' ||
                 t === '-e' || t === '--referer'
             ) {
-                i++; // the browser supplies these; sendRequest drops them anyway
+                i++; // the browser supplies these, sendRequest drops them anyway
             } else if (t === '--url') {
                 url = tokens[++i] || '';
             } else if (!t.startsWith('-') && !url) {
@@ -489,7 +470,7 @@
             }
         }
 
-        if (!url) throw new Error('No URL found in the cURL command.');
+        if (!url) throw new Error('Không tìm thấy URL trong lệnh cURL');
         if (!/^https?:\/\//i.test(url)) url = new URL(url, location.href).href;
 
         return { method: method || (body ? 'POST' : 'GET'), url, headers, body };
@@ -510,7 +491,7 @@
         const m = /^([A-Z]+)\s+(\S+)\s+HTTP\/[\d.]+$/i.exec(first.trim());
 
         if (!m) {
-            throw new Error('Not a raw HTTP request line. Expected e.g. "GET /path HTTP/1.1".');
+            throw new Error('Đây không phải là dữ liệu HTTP request. Cấu trúc: "GET /path HTTP/1.1".');
         }
 
         const headers = {};
@@ -523,7 +504,7 @@
         }
 
         const host = headers.host;
-        if (!host) throw new Error('Missing Host header.');
+        if (!host) throw new Error('Thiếu host header');
 
         let url = m[2];
         if (!/^https?:\/\//i.test(url)) {
@@ -536,7 +517,7 @@
         return { method: m[1].toUpperCase(), url, headers, body };
     }
 
-    // Headers a browser refuses to let JS set, or that must come from the live session.
+    // Headers a browser refuses to let JS set, or that must come from the live session
     const SKIP_HEADER = /^(host|cookie|content-length|connection|accept-encoding|upgrade-insecure-requests|priority|referer|origin|user-agent|sec-.*)$/i;
 
     async function sendRequest(req) {
@@ -559,7 +540,7 @@
         return fetch(req.url, init);
     }
 
-    // If the pasted blob already contains an HTTP response (or raw HTML), use it as-is.
+    // If the pasted blob already contains an HTTP response (or raw HTML), use it
     function extractInlineResponse(raw) {
         const text = String(raw).replace(/\r\n/g, '\n');
         const status = /(?:^|\n)HTTP\/\d(?:\.\d)?\s+\d{3}[^\n]*\n/.exec(text);
@@ -579,22 +560,7 @@
         return MARKER.test(section) || /<html[\s>]/i.test(section) ? section : null;
     }
 
-    /* =========================================================
-     * 6. Panel UI (Shadow DOM so the LMS CSS can't break it)
-     * ========================================================= */
-
-    /* --- Stealth build (red-team reference) ------------------------------
-       Forensic channels of the previous build, all closed:
-         1. no cookies    - nothing of ours appears in any request header
-         2. no fixed key  - one storage entry, name derived from the host
-         3. no globals    - no unsafeWindow.LMSDevAnswers unless DEV
-         4. no external  - no Google Fonts request, no DNS leak
-         5. no static id - element ids and theme attribute are randomised
-         6. no extra GET - the request replay is DEV-only
-       Theme/hue still persist: the LMS only calls removeItem() on its own
-       keys, it never clears the whole store.
-       -------------------------------------------------------------------- */
-
+    // The beautifier ✨✨
     const DEV = /[?&]__lmsdev=1\b/.test(location.search);
 
     const RID = () => Math.random().toString(36).slice(2, 10);
@@ -605,7 +571,6 @@
     const HUE_KEY = 'hue';
     const THEME_KEY = 'theme';
 
-    // One entry, name carries no recognisable string.
     const STORE_KEY =
         '_' +
         [...location.hostname].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7).toString(36);
@@ -616,7 +581,6 @@
                 const raw = store.getItem(STORE_KEY);
                 if (raw) return JSON.parse(raw);
             } catch (e) {
-                /* storage blocked or corrupt entry */
             }
         }
         return null;
@@ -627,8 +591,7 @@
         return prefs && key in prefs ? prefs[key] : null;
     }
 
-    /* Material 3 role tones in OKLCH: [lightness, chroma, hue offset from the accent].
-       shortcut: hand-tuned tones instead of HCT; upgrade if a hue needs spec-exact contrast. */
+    // Material 3 color stuff
     const SCHEME = {
         light: {
             'primary': [0.44, 0.155, 0],
@@ -682,7 +645,7 @@
         const savedTheme = load(THEME_KEY);
         if (savedTheme === 'light' || savedTheme === 'dark') theme = savedTheme;
     } catch (e) {
-        /* storage blocked, keep the system default */
+
     }
 
     function themeCss() {
@@ -703,7 +666,7 @@
             try {
                 store.setItem(STORE_KEY, JSON.stringify(prefs));
             } catch (e) {
-                /* storage blocked, the choice still applies for this page */
+
             }
         }
     }
@@ -722,8 +685,6 @@
         const wheel = root.querySelector('.wheel');
         wheel.style.setProperty('--hue', hue);
         wheel.setAttribute('aria-valuenow', String(hue));
-
-        root.querySelector('[data-act="theme"]').setAttribute('aria-checked', String(theme === 'light'));
     }
 
     function setHue(value, persist) {
@@ -741,7 +702,7 @@
         save(THEME_KEY, theme);
     }
 
-    /* Shape, spacing, type and motion tokens shared by the panel and the FAB. */
+    // Shape, spacing, type and motion tokens
     const TOKENS = `
     :host {
       --md-font: "Google Sans Flex", "Google Sans", Roboto, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
@@ -767,8 +728,6 @@
 
       --md-sys-motion-standard: cubic-bezier(.2, 0, 0, 1);
       --md-sys-motion-decelerate: cubic-bezier(.05, .7, .1, 1);
-      /* M3 Expressive spring, approximated as an overshoot bezier.
-         shortcut: bezier spring, upgrade to linear() spring output if it matters. */
       --md-sys-motion-spring: cubic-bezier(.34, 1.4, .64, 1);
       --md-sys-motion-short: 150ms;
       --md-sys-motion-medium: 220ms;
@@ -816,10 +775,6 @@
 
     .panel {
       width: 456px; max-width: calc(100vw - var(--sp-8));
-      /* Top/bottom insets. The 44px brand is centered in the 64px bar, which
-         already adds 10px above it; 6px here makes that gap 16px like the
-         left edge. The bottom strip keeps scrolled rows off the rounded
-         border. */
       padding: 6px 0 var(--sp-4);
       background: var(--md-sys-color-surface-container);
       color: var(--md-sys-color-on-surface);
@@ -835,10 +790,8 @@
     .panel.testing { width: 688px; }
     .panel.min .body { display: none; }
     .panel.min { padding-bottom: 0; }
-    /* Minimized has no scroller strip, so match the 16px left/right inset. */
     .panel.min .actions { padding-bottom: var(--sp-4); }
 
-    /* Top app bar */
     .bar {
       display: flex; align-items: center; gap: var(--sp-2);
       height: 64px; padding: 0 var(--sp-4);
@@ -871,7 +824,6 @@
     .icon-btn:active { background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent); }
     .icon-btn:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
 
-    /* Buttons: text (default), tonal, outlined, filled */
     .btn {
       flex: 0 0 auto; min-height: 44px; padding: 0 var(--sp-4);
       display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
@@ -896,7 +848,6 @@
       padding: 0 var(--sp-4) var(--sp-2);
     }
 
-    /* Settings menu */
     .menu-wrap { position: relative; flex: 0 0 auto; }
     .menu {
       position: absolute; top: calc(100% + var(--sp-2)); left: 0; z-index: 5;
@@ -923,17 +874,20 @@
     .menu-item:hover { background: var(--md-sys-color-surface-container-highest); }
     .menu-item:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; }
     .menu-sep { height: 1px; margin: var(--sp-2) 0; background: var(--md-sys-color-outline-variant); }
-    .menu-block { padding: var(--sp-1) var(--sp-3) var(--sp-2); }
+    .menu-block { position: relative; padding: var(--sp-1) var(--sp-3) var(--sp-2); }
     .menu-label {
       display: block;
       font: var(--md-sys-typescale-label-small);
       color: var(--md-sys-color-on-surface-variant);
     }
 
+    .wheel-block {
+      width: 112px;
+      margin: var(--sp-2) auto var(--sp-1);
+    }
     .wheel {
       --hue: 265;
       position: relative; width: 112px; height: 112px;
-      margin: var(--sp-2) auto var(--sp-1);
       border-radius: var(--md-sys-shape-corner-full);
       background:
         radial-gradient(circle, var(--md-sys-color-surface-container-high) 0 23px, transparent 24px),
@@ -956,35 +910,25 @@
       pointer-events: none;
     }
 
-    .switch-row { justify-content: space-between; }
-    .switch {
-      position: relative; flex: 0 0 auto;
-      width: 44px; height: 26px;
+    .theme-btn {
+      position: absolute; right: var(--sp-3); bottom: var(--sp-3);
+      width: 34px; height: 34px; padding: 0;
+      display: grid; place-items: center;
+      border: 1px solid var(--md-sys-color-outline-variant);
       border-radius: var(--md-sys-shape-corner-full);
       background: var(--md-sys-color-surface-container-highest);
-      box-shadow: inset 0 0 0 2px var(--md-sys-color-outline);
-      transition: background-color var(--md-sys-motion-short) var(--md-sys-motion-standard);
+      color: var(--md-sys-color-on-surface-variant);
+      cursor: pointer;
+      transition: background-color var(--md-sys-motion-short) var(--md-sys-motion-standard),
+                  transform var(--md-sys-motion-short) var(--md-sys-motion-spring);
     }
-    .switch::after {
-      content: ''; position: absolute; top: 50%; left: 4px;
-      width: 18px; height: 18px;
-      transform: translateY(-50%);
-      border-radius: var(--md-sys-shape-corner-full);
-      background: var(--md-sys-color-outline);
-      transition: left var(--md-sys-motion-short) var(--md-sys-motion-standard),
-                  width var(--md-sys-motion-short) var(--md-sys-motion-standard),
-                  height var(--md-sys-motion-short) var(--md-sys-motion-standard),
-                  background-color var(--md-sys-motion-short) var(--md-sys-motion-standard);
-    }
-    .switch-row[aria-checked="true"] .switch {
-      background: var(--md-sys-color-primary);
-      box-shadow: inset 0 0 0 2px var(--md-sys-color-primary);
-    }
-    .switch-row[aria-checked="true"] .switch::after {
-      left: 22px;
-      width: 18px; height: 18px;
-      background: var(--md-sys-color-on-primary);
-    }
+    .theme-btn:hover { background: var(--md-sys-color-surface-container-high); }
+    .theme-btn:active { transform: scale(.92); }
+    .theme-btn:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+    .theme-btn svg { width: 18px; height: 18px; fill: currentColor; }
+    .theme-btn .i-sun { display: none; }
+    :host([${THEME_ATTR}="dark"]) .theme-btn .i-sun { display: block; }
+    :host([${THEME_ATTR}="dark"]) .theme-btn .i-moon { display: none; }
 
     .body {
       max-height: min(72vh, 720px);
@@ -1013,8 +957,6 @@
 
     .q {
       margin-top: var(--sp-1);
-      /* Equal inset on all sides; the odd row background makes an uneven
-         top/bottom edge obvious. */
       padding: var(--sp-3);
       border-radius: var(--md-sys-shape-corner-medium);
       animation: q-in var(--md-sys-motion-medium) var(--md-sys-motion-decelerate) both;
@@ -1042,8 +984,6 @@
     .opts { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-2); }
     .opt {
       display: inline-flex; align-items: center; gap: var(--sp-1);
-      /* 8px top/bottom equals the 8px side padding, so a chip with a wrapped
-         (two-line) label stays balanced. */
       padding: var(--sp-2);
       border: 1px solid var(--md-sys-color-outline-variant);
       border-radius: var(--md-sys-shape-corner-small);
@@ -1084,7 +1024,6 @@
     }
     .empty b { color: var(--md-sys-color-on-surface); font-weight: 600; }
 
-    /* Replay view */
     .test .hint {
       margin-bottom: var(--sp-3);
       font: var(--md-sys-typescale-body-small);
@@ -1111,7 +1050,6 @@
     .row { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-4); }
     .result { animation: q-in var(--md-sys-motion-medium) var(--md-sys-motion-decelerate) both; }
 
-    /* M3 circular progress indicator (indeterminate) */
     .spinner { flex: 0 0 auto; width: 18px; height: 18px; display: inline-block; }
     .spinner svg { display: block; width: 100%; height: 100%; animation: spin 1.4s linear infinite; }
     .spinner circle {
@@ -1138,12 +1076,10 @@
       word-break: break-word;
     }
     .status.err { color: var(--md-sys-color-error); }
-    /* Empty status keeps its aria-live region but adds no gap. */
     .status:empty { margin-top: 0; }
 
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { transition: none !important; animation: none !important; }
-      /* A frozen spinner reads as "stuck": keep it turning, just slower. */
       .spinner svg { animation: spin 3s linear infinite !important; }
       .spinner circle { animation: dash 3s ease-in-out infinite !important; }
     }
@@ -1191,27 +1127,29 @@
       <div class="panel">
         <header class="bar">
           <span class="brand" aria-hidden="true">K12</span>
-          <span class="title">K12Online Hack - Exam</span>
-          <button class="icon-btn" type="button" data-act="min" title="Minimize" aria-label="Minimize">&#8211;</button>
-          <button class="icon-btn" type="button" data-act="close" title="Close" aria-label="Close">&#215;</button>
+          <span class="title">K12Online Hack - bài kiểm tra</span>
+          <button class="icon-btn" type="button" data-act="min" title="Thu nhỏ" aria-label="Thu nhỏ">&#8211;</button>
+          <button class="icon-btn" type="button" data-act="close" title="Đóng" aria-label="Đóng">&#215;</button>
         </header>
         <div class="actions">
-          <button class="btn tonal" type="button" data-act="scan" title="Re-scan this page">&#8635; Rescan</button>
+          <button class="btn tonal" type="button" data-act="scan" title="Scan lại trang này">&#8635; Scan lại</button>
           <div class="menu-wrap">
-            <button class="icon-btn" type="button" data-act="menu" title="More options" aria-label="More options" aria-haspopup="true" aria-expanded="false">&#8943;</button>
+            <button class="icon-btn" type="button" data-act="menu" title="Tùy chọn" aria-label="Tùy chọn" aria-haspopup="true" aria-expanded="false">&#8943;</button>
             <div class="menu" hidden>
-              <button class="menu-item" type="button" data-act="test" title="Replay a raw HTTP request">Replay request</button>
+              <button class="menu-item" type="button" data-act="test" title="Gửi HTTP request">Replay request</button>
               <div class="menu-sep"></div>
               <div class="menu-block">
-                <span class="menu-label">Accent color</span>
-                <div class="wheel" role="slider" tabindex="0" aria-label="Accent color" aria-valuemin="0" aria-valuemax="360" aria-valuenow="${hue}" style="--hue:${hue}">
-                  <span class="wheel-thumb"></span>
+                <span class="menu-label">Giao diện</span>
+                <div class="wheel-block">
+                  <div class="wheel" role="slider" tabindex="0" aria-label="Giao diện" aria-valuemin="0" aria-valuemax="360" aria-valuenow="${hue}" style="--hue:${hue}">
+                    <span class="wheel-thumb"></span>
+                  </div>
+                  <button class="theme-btn" type="button" data-act="theme" title="Chuyển chế độ sáng/tối" aria-label="Chuyển chế độ sáng/tối">
+                    <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0 .39-.39.39-1.03 0-1.41l-1.06-1.06zm1.06-12.37l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06c.39-.39.39-1.03 0-1.41s-1.03-.39-1.41 0zM7.05 18.36l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06c.39-.39.39-1.03 0-1.41s-1.03-.39-1.41 0z"/></svg>
+                    <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/></svg>
+                  </button>
                 </div>
               </div>
-              <div class="menu-sep"></div>
-              <button class="menu-item switch-row" type="button" role="switch" aria-checked="${theme === 'light'}" data-act="theme">
-                <span>Light mode</span><span class="switch" aria-hidden="true"></span>
-              </button>
             </div>
           </div>
         </div>
@@ -1367,7 +1305,7 @@
 
         const root = host.attachShadow({ mode: 'open' });
         root.innerHTML = `<style>${TOKENS}${themeCss()}${FAB_CSS}</style>
-      <button class="fab" type="button" title="Open LMS payload reader" aria-label="Open LMS payload reader">K12</button>`;
+      <button class="fab" type="button" title="Mở K12Online Hack" aria-label="Mở K12Online Hack">K12</button>`;
 
         root.querySelector('.fab').addEventListener('click', () => {
             host.remove();
@@ -1387,8 +1325,7 @@
                 reportHtml(buildReport(document.documentElement.outerHTML));
         } catch (e) {
             root.querySelector('.body').innerHTML =
-                `<div class="empty"><b>No exam payload on this page.</b><br>${esc(e.message)}` +
-                `<br><br>Use <b>&#8943; &rarr; Replay request</b> and paste a raw request or response.</div>`;
+                `<div class="empty"><b>Không tìm thấy dữ liệu bài kiểm tra trên trang</b><br>${esc(e.message)}`
         }
     }
 
@@ -1461,9 +1398,9 @@
             const inline = extractInlineResponse(raw);
 
             if (parseOnly || inline) {
-                if (!inline) throw new Error('No HTTP response or HTML block found in the pasted text.');
+                if (!inline) throw new Error('Không tìm thấy HTTP respond hay mã HTML.');
                 html = inline;
-                note = 'Parsed the pasted response locally (nothing was sent).';
+                note = 'Parsed the pasted response locally.';
             } else {
                 const req = parseRawRequest(raw);
                 const started = Date.now();
@@ -1477,8 +1414,8 @@
                 if (!MARKER.test(html)) {
                     const looksLikeLogin = /login|đăng nhập|sign in/i.test(html);
                     throw new Error(
-                        `${note} — no exam payload in the response.` +
-                        (looksLikeLogin ? ' Looks like a login page; the session may have expired.' : '')
+                        `${note} - không thấy nội dung bài kiểm tra` +
+                        (looksLikeLogin ? ' Có vẻ như tài khoản đã bị đăng xuất.' : '')
                     );
                 }
             }
@@ -1502,10 +1439,8 @@
         root.querySelector('.body').innerHTML = reportHtml(report);
     }
 
-    /* =========================================================
-     * 7. HTML rendering
-     * ========================================================= */
-
+    
+    // Render html
     function questionHtml(q, i) {
         const num = q.domNumber || q.index || '';
         let opts = '';
@@ -1551,10 +1486,7 @@
         return groups || '<div class="empty">No questions found.</div>';
     }
 
-    /* =========================================================
-     * 8. Boot
-     * ========================================================= */
-
+    // Bootloader (not grub)
     function boot() {
         if (booted) return;
         booted = true;
@@ -1569,7 +1501,7 @@
             renderReport(report);
             return;
         } catch (e) {
-            /* fall through */
+
         }
 
         if (onExamPage) {
@@ -1578,9 +1510,7 @@
         }
     }
 
-    /* Self-check: the stealth invariants must hold. Dev only.
-       shortcut: asserts the two properties that matter (no cookie written,
-       prefs persisted); upgrade if more channels are added. */
+    // Make sure nothing broke
     function selfCheck() {
         const before = document.cookie;
 
@@ -1593,12 +1523,12 @@
         return true;
     }
 
-    // Alt+Shift+A opens/re-scans the panel on any matched page.
+    // Ctrl + Shift + U to open the menu
     window.addEventListener(
         'keydown',
         (e) => {
-            if (!e.shiftKey) return;
-            if (String(e.key).toLowerCase() !== 'a') return;
+            if (!e.ctrlKey || !e.shiftKey) return;
+            if (String(e.key).toLowerCase() !== 'u') return;
 
             e.preventDefault();
             e.stopPropagation();
@@ -1608,20 +1538,20 @@
         true
     );
 
-    // Console/test API - dev only, a page-visible global is a fingerprint.
+    // Console/test API
     if (DEV) {
         const API = { extractItems, extractInlineResponse, buildReport, describeItem, parseRawRequest, sendRequest, reportText };
         try {
             (typeof unsafeWindow !== 'undefined' ? unsafeWindow : window).LMSDevAnswers = API;
         } catch (e) {
-            /* ignore */
+
         }
 
         try {
             selfCheck();
-            console.info('[reader] self-check ok');
+            console.info('[K12Hack] self-check ok');
         } catch (e) {
-            console.error('[reader]', e.message);
+            console.error('[K12Hack]', e.message);
         }
     }
 
