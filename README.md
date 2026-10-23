@@ -13,7 +13,7 @@
 #### Menu của K12Online Hack sẽ tự động hiện lên khi bạn vào một bài kiểm tra trên K12Online
 
 > [!NOTE]
-> #### Bạn có thể kiểm tra xem K12Online Hack có hoạt động hay không bằng cách vào ‌/ refresh K12Online (nếu đang mở) và nhìn vào góc dưới bên phải màn hình:
+> #### Bạn có thể kiểm tra xem K12Online Hack có hoạt động hay không bằng cách vào ‌/ refresh K12Online (nếu đang mở) - (không cần mở bài kiểm tra, đáp án sẽ tự hiển thị khi mở bài kiểm tra) và nhìn vào góc dưới bên phải màn hình:
 > 
 > <img width="100" alt="image" src="https://github.com/user-attachments/assets/f8e6a95b-f775-49ed-af2a-a7e2f77c3cc1" />
 >
