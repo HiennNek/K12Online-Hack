@@ -5,3 +5,8 @@
   
   <img width="35%" alt="image" src="https://github.com/user-attachments/assets/6cb2c74e-d92c-496f-a84d-305d5ad23da3" />
 </div>
+
+## Hướng dẫn cài đặt:
+1. Cài đặt extension [Tampermonkey](https://www.tampermonkey.net/) cho trình duyệt của bạn.
+2. Bấm vào [Đây](https://github.com/HiennNek/K12Online-Hack/raw/refs/heads/main/k12onlinehack.user.js) để cài đặt K12Online Hack sau khi đã cài xong Tampermonkey
+3. Done!
