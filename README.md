@@ -8,7 +8,7 @@
 
 #
 
-[Mirror 1: Greasy Forr](https://greasyfork.org/en/scripts/601808-k12online-examination-hack-cho-b%C3%A0i-ki%E1%BB%83m-tra)
+[Mirror 1: Greasy Fork](https://greasyfork.org/en/scripts/601808-k12online-examination-hack-cho-b%C3%A0i-ki%E1%BB%83m-tra)
 
 #
 
