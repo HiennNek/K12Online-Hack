@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         K12Online Examination Hack (cho bài kiểm tra)
 // @namespace    https://github.com/HiennNek/K12Online-Hack
-// @version      1.0.2
+// @version      1.0.3
 // @description  Tìm đáp án bài kiểm tra K12Online
 // @author       HiennNek
 // @match        *://*.k12online.vn/*
@@ -195,7 +195,39 @@
         return 'unknown';
     }
 
+    // Reading exams group a passage with its sub-questions: the group's `choices`
+    // are the questions themselves, each with {answerTitle, options[], answer}.
+    function isGroup(item) {
+        const entries = choiceEntries(item && item.choices);
+        return entries.length > 0 && entries.every((e) => e.value && Array.isArray(e.value.options));
+    }
+
+    // A child's `answer` is the answerCode of the key option; options keep the
+    // on-screen order, so they are labelled A, B, C, D like normal choices.
+    function describeChild(item) {
+        const key = txt(item.answer);
+        const options = item.options.map((o, i) => ({
+            label: `${labelUpper(i)}. ${txt(o.title)}`,
+            marked: String(o.answerCode) === key,
+        }));
+        const marked = options.filter((o) => o.marked).map((o) => o.label);
+
+        return {
+            index: Number(item.questionIndex) || 0,
+            kind: 'choice',
+            title: txt(item.answerTitle) || txt(item.textTitle) || txt(item.title),
+            note: txt(item.answerDescription),
+            domNumber: '',
+            answer: marked.length ? marked.join(', ') : '—',
+            options,
+            statements: [],
+            parts: [],
+        };
+    }
+
     function describeItem(item, li) {
+        if (Array.isArray(item && item.options) && item.answer != null) return describeChild(item);
+
         const kind = classify(item);
         const out = {
             index: Number(item.questionIndex) || 0,
@@ -307,6 +339,12 @@
         const groups = [];
         const used = new Set();
 
+        // A group item becomes one question per sub-question.
+        const describeOne = (item, li) => {
+            if (!isGroup(item)) return [describeItem(item, li)];
+            return choiceEntries(item.choices).map((e) => describeItem(e.value, null));
+        };
+
         if (doc) {
             // Follow the page's own order + part headers, whatever they are
             const lis = doc.querySelectorAll('li[id]');
@@ -314,7 +352,7 @@
             for (const li of lis) {
                 const id = byId.has(li.id) ? li.id : li.id.replace(/^question/, '');
                 const item = byId.get(id);
-                if (!item) continue;
+                if (!item || used.has(id)) continue;
 
                 used.add(id);
 
@@ -327,7 +365,7 @@
                     groups.push(group);
                 }
 
-                group.questions.push(describeItem(item, li));
+                group.questions.push(...describeOne(item, li));
             }
         }
 
@@ -341,20 +379,26 @@
                 for (const item of leftovers) {
                     const key = txt(item.elementTypeTitle) || txt(item.elementType) || 'Khác';
                     if (!byType.has(key)) byType.set(key, { name: key, questions: [] });
-                    byType.get(key).questions.push(describeItem(item, null));
+                    byType.get(key).questions.push(...describeOne(item, null));
                 }
 
                 groups.push(...byType.values());
             } else {
                 groups.push({
                     name: 'Không có trên trang',
-                    questions: leftovers.map((item) => describeItem(item, null)),
+                    questions: leftovers.reduce((acc, item) => acc.concat(describeOne(item, null)), []),
                 });
             }
         }
 
         const questions = groups.reduce((acc, g) => acc.concat(g.questions), []);
-        return { meta, groups, questions, itemCount: items.length };
+
+        // Group children carry no questionIndex; number them like the page does.
+        questions.forEach((q, i) => {
+            if (!q.index) q.index = i + 1;
+        });
+
+        return { meta, groups, questions, itemCount: questions.length };
     }
 
     // Plain-text rendering (for Copy)
