@@ -13,6 +13,9 @@
 #
 
 ## Hướng dẫn cài đặt:
+
+**Nếu bạn thích dùng app trên Android (APK) thay vì web, hãy sử dụng dự án [này](https://github.com/HiennNek/K12Online-Mod-APK)**
+
 1. Cài đặt extension [Tampermonkey](https://www.tampermonkey.net/) cho trình duyệt của bạn.
 2. Bấm vào [Đây](https://github.com/HiennNek/K12Online-Hack/raw/refs/heads/main/k12onlinehack.user.js) để cài đặt K12Online Hack sau khi đã cài xong Tampermonkey
 3. Done!
