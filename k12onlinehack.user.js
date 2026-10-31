@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         K12Online Examination Hack (cho bài kiểm tra)
 // @namespace    https://github.com/HiennNek/K12Online-Hack
-// @version      1.0.4
+// @version      1.0.5
 // @description  Tìm đáp án bài kiểm tra K12Online
 // @author       HiennNek
 // @match        *://*.k12online.vn/*
@@ -790,14 +790,16 @@
     }
 
     .md-icon {
-      font-family: var(--md-icon-font);
-      font-weight: normal;
-      font-style: normal;
-      font-size: 20px;
-      line-height: 1;
-      letter-spacing: normal;
-      text-transform: none;
-      display: inline-block;
+      font-family: var(--md-icon-font) !important;
+      font-weight: normal !important;
+      font-style: normal !important;
+      font-size: 20px !important;
+      line-height: 1 !important;
+      letter-spacing: normal !important;
+      text-transform: none !important;
+      display: inline-flex !important;
+      align-items: center;
+      justify-content: center;
       white-space: nowrap;
       word-wrap: normal;
       direction: ltr;
