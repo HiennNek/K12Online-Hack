@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         K12Online Examination Hack (cho bài kiểm tra)
 // @namespace    https://github.com/HiennNek/K12Online-Hack
-// @version      1.0.5
+// @version      1.0.6
 // @description  Tìm đáp án bài kiểm tra K12Online
 // @author       HiennNek
 // @license      PolyForm Noncommercial License 1.0.0
@@ -279,7 +279,7 @@
         return out;
     }
 
-    
+
     // Make the extracted data human-readable
     function readMeta(doc) {
         const fields = {};
@@ -792,15 +792,15 @@
 
     .md-icon {
       font-family: var(--md-icon-font) !important;
-      font-weight: normal !important;
-      font-style: normal !important;
-      font-size: 20px !important;
-      line-height: 1 !important;
-      letter-spacing: normal !important;
-      text-transform: none !important;
-      display: inline-flex !important;
-      align-items: center;
-      justify-content: center;
++     font-weight: normal !important;
++     font-style: normal !important;
++     font-size: 20px !important;
++     line-height: 1 !important;
++     letter-spacing: normal !important;
++     text-transform: none !important;
++     display: inline-flex !important;
++     align-items: center;
++     justify-content: center;
       white-space: nowrap;
       word-wrap: normal;
       direction: ltr;
@@ -1501,7 +1501,7 @@
         root.querySelector('.body').innerHTML = reportHtml(report);
     }
 
-    
+
     // Render html
     function questionHtml(q, i) {
         const num = q.domNumber || q.index || '';
