@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         K12Online Examination Hack (cho bài kiểm tra)
 // @namespace    https://github.com/HiennNek/K12Online-Hack
-// @version      1.0.3
+// @version      1.0.4
 // @description  Tìm đáp án bài kiểm tra K12Online
 // @author       HiennNek
 // @match        *://*.k12online.vn/*
