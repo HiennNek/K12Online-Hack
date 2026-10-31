@@ -752,6 +752,7 @@
     const TOKENS = `
     :host {
       --md-font: "Google Sans Flex", "Google Sans", Roboto, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+      --md-icon-font: "Material Symbols Rounded";
       font-variation-settings: 'ROND' 100;
       font-optical-sizing: auto;
 
@@ -786,6 +787,23 @@
       --md-sys-typescale-body-medium: 400 15px/22px var(--md-font);
       --md-sys-typescale-title-medium: 500 18px/26px var(--md-font);
       --md-sys-typescale-title-large: 400 24px/30px var(--md-font);
+    }
+
+    .md-icon {
+      font-family: var(--md-icon-font);
+      font-weight: normal;
+      font-style: normal;
+      font-size: 20px;
+      line-height: 1;
+      letter-spacing: normal;
+      text-transform: none;
+      display: inline-block;
+      white-space: nowrap;
+      word-wrap: normal;
+      direction: ltr;
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
     }
   `;
 
@@ -968,9 +986,9 @@
     .theme-btn:hover { background: var(--md-sys-color-surface-container-high); }
     .theme-btn:active { transform: scale(.92); }
     .theme-btn:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
-    .theme-btn svg { width: 18px; height: 18px; fill: currentColor; }
+    .theme-btn .md-icon { font-size: 18px; }
     .theme-btn .i-sun { display: none; }
-    :host([${THEME_ATTR}="dark"]) .theme-btn .i-sun { display: block; }
+    :host([${THEME_ATTR}="dark"]) .theme-btn .i-sun { display: inline-block; }
     :host([${THEME_ATTR}="dark"]) .theme-btn .i-moon { display: none; }
 
     .body {
@@ -1040,7 +1058,7 @@
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
     }
-    .opt.on i { font-style: normal; font-size: 12px; }
+    .opt.on .md-icon { font-size: 14px; font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 14; }
     .opt.off {
       border-color: transparent;
       background: var(--md-sys-color-error-container);
@@ -1138,7 +1156,7 @@
             {
                 rel: 'stylesheet',
                 id: FONT_ID,
-                href: 'https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght,ROND@100..1000,100&display=swap',
+                href: 'https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght,ROND@100..1000,100&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap',
             },
         ];
 
@@ -1171,15 +1189,15 @@
         <header class="bar">
           <span class="brand" aria-hidden="true">K12</span>
           <span class="title">K12Online Hack - bài kiểm tra</span>
-          <button class="icon-btn" type="button" data-act="min" title="Thu nhỏ" aria-label="Thu nhỏ">&#8211;</button>
-          <button class="icon-btn" type="button" data-act="close" title="Đóng" aria-label="Đóng">&#215;</button>
+          <button class="icon-btn" type="button" data-act="min" title="Thu nhỏ" aria-label="Thu nhỏ"><span class="md-icon">remove</span></button>
+          <button class="icon-btn" type="button" data-act="close" title="Đóng" aria-label="Đóng"><span class="md-icon">close</span></button>
         </header>
         <div class="actions">
-          <button class="btn tonal" type="button" data-act="scan" title="Scan lại trang này">&#8635; Scan lại</button>
+          <button class="btn tonal" type="button" data-act="scan" title="Scan lại trang này"><span class="md-icon" style="font-size:16px">refresh</span> Scan lại</button>
           <div class="menu-wrap">
-            <button class="icon-btn" type="button" data-act="menu" title="Tùy chọn" aria-label="Tùy chọn" aria-haspopup="true" aria-expanded="false">&#8943;</button>
+            <button class="icon-btn" type="button" data-act="menu" title="Tùy chọn" aria-label="Tùy chọn" aria-haspopup="true" aria-expanded="false"><span class="md-icon">more_horiz</span></button>
             <div class="menu" hidden>
-              <button class="menu-item" type="button" data-act="test" title="Gửi HTTP request">Replay request</button>
+              <button class="menu-item" type="button" data-act="test" title="Gửi HTTP request"><span class="md-icon">send</span> Replay request</button>
               <div class="menu-sep"></div>
               <div class="menu-block">
                 <span class="menu-label">Giao diện</span>
@@ -1187,8 +1205,8 @@
                   <span class="wheel-thumb"></span>
                 </div>
                 <button class="theme-btn" type="button" data-act="theme" title="Chuyển chế độ sáng/tối" aria-label="Chuyển chế độ sáng/tối">
-                  <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37c-.39-.39-1.03-.39-1.41 0-.39.39-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0 .39-.39.39-1.03 0-1.41l-1.06-1.06zm1.06-12.37l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06c.39-.39.39-1.03 0-1.41s-1.03-.39-1.41 0zM7.05 18.36l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06c.39-.39.39-1.03 0-1.41s-1.03-.39-1.41 0z"/></svg>
-                  <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z"/></svg>
+                  <span class="md-icon i-sun">light_mode</span>
+                  <span class="md-icon i-moon">dark_mode</span>
                 </button>
               </div>
             </div>
@@ -1384,9 +1402,9 @@
         </div>
         <textarea spellcheck="false" aria-label="Raw HTTP request, response, or cURL command" placeholder="GET /79000820/page/Courseware/Exam/doExam?... HTTP/1.1&#10;Host: hcm.k12online.vn&#10;..."></textarea>
         <div class="row">
-          <button class="btn filled" type="button" data-test="send">Send &amp; parse</button>
-          <button class="btn outlined" type="button" data-test="parse">Parse pasted response</button>
-          <button class="btn" type="button" data-test="clear">Clear</button>
+          <button class="btn filled" type="button" data-test="send"><span class="md-icon" style="font-size:16px">send</span> Send &amp; parse</button>
+          <button class="btn outlined" type="button" data-test="parse"><span class="md-icon" style="font-size:16px">code</span> Parse pasted response</button>
+          <button class="btn" type="button" data-test="clear"><span class="md-icon" style="font-size:16px">delete_sweep</span> Clear</button>
         </div>
         <div class="status" role="status" aria-live="polite"></div>
       </div>`;
@@ -1488,7 +1506,7 @@
 
         if (q.kind === 'choice') {
             opts = q.options
-                .map((o) => `<span class="opt${o.marked ? ' on' : ''}">${esc(o.label)}${o.marked ? '<i>&#10003;</i>' : ''}</span>`)
+                .map((o) => `<span class="opt${o.marked ? ' on' : ''}">${esc(o.label)}${o.marked ? '<span class="md-icon">check</span>' : ''}</span>`)
                 .join('');
         } else if (q.kind === 'truefalse') {
             opts = q.statements
